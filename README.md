@@ -1,6 +1,20 @@
 # AgentIM - Multi-Channel AI Agent Manager
 
-一个用Rust编写的优雅的多channel AI agent管理系统，支持Claude、Codex、Pi等多个AI平台，以及Telegram、Discord、Feishu、QQ等多个通讯渠道。
+一个用Rust编写的优雅的多channel AI agent管理系统。AgentIM提供了一个统一的框架来管理多个AI代理（Claude、Codex、Pi）和多个通讯渠道（Telegram、Discord、Feishu、QQ），同时优雅地管理用户会话和上下文。
+
+## 核心设计理念
+
+AgentIM是一个**纯粹的会话和上下文管理框架**，而不是一个API网关。它的职责是：
+
+- ✅ 管理Agent和Channel的注册
+- ✅ 维护用户会话和消息历史
+- ✅ 提供优雅的上下文管理
+- ✅ 支持并发会话处理
+
+它**不负责**：
+- ❌ 调用外部API（由使用者负责）
+- ❌ 存储持久化（可扩展）
+- ❌ 消息路由（由使用者实现）
 
 ## 架构设计
 
@@ -26,27 +40,34 @@
 │  └──────────────────────────────────────────────────┘   │
 │                                                           │
 └─────────────────────────────────────────────────────────┘
+         │                          │
+         ▼                          ▼
+    ┌─────────────┐          ┌──────────────┐
+    │   Your      │          │   Your       │
+    │   Agent     │          │   Channel    │
+    │   Logic     │          │   Logic      │
+    └─────────────┘          └──────────────┘
 ```
 
 ## 核心特性
 
 ### 1. 多Agent支持
-- **Claude**: 通过Anthropic API集成
-- **Codex**: 通过OpenAI API集成
-- **Pi**: 通过Pi API集成
-- 易于扩展新的Agent类型
+- **Claude**: 本地模拟实现（可扩展为真实API调用）
+- **Codex**: 本地模拟实现（可扩展为真实API调用）
+- **Pi**: 本地模拟实现（可扩展为真实API调用）
+- 易于添加新的Agent类型
 
 ### 2. 多Channel支持
-- **Telegram**: 通过Bot API
-- **Discord**: 通过Discord API
-- **Feishu/Lark**: 通过Feishu Open API
-- **QQ**: 通过QQ Bot API
-- 易于扩展新的Channel类型
+- **Telegram**: 本地模拟实现
+- **Discord**: 本地模拟实现
+- **Feishu/Lark**: 本地模拟实现
+- **QQ**: 本地模拟实现
+- 易于添加新的Channel类型
 
 ### 3. 优雅的Session管理
 - 每个用户-agent-channel组合维护独立session
 - 自动上下文管理（可配置历史消息数量）
-- 消息持久化和恢复
+- 消息持久化支持（可扩展）
 - 元数据支持
 
 ### 4. 并发安全
@@ -54,38 +75,20 @@
 - 支持高并发场景
 - 线程安全的Agent和Channel trait
 
-### 5. 错误处理
-- 统一的错误类型
-- 详细的错误信息
-- 优雅的错误传播
-
-## 项目结构
-
-```
-src/
-├── main.rs           # 主程序入口
-├── lib.rs            # 库导出
-├── agent.rs          # Agent trait和实现
-├── channel.rs        # Channel trait和实现
-├── session.rs        # Session和Message定义
-├── manager.rs        # AgentIM核心管理器
-├── config.rs         # 配置类型定义
-└── error.rs          # 错误类型定义
-
-examples/
-├── basic.rs          # 基础使用示例
-└── session_management.rs  # Session管理示例
-```
+### 5. 易于扩展
+- Trait-based设计
+- 易于添加新的Agent和Channel类型
+- 易于集成真实API
 
 ## 快速开始
 
-### 安装依赖
+### 构建
 
 ```bash
-cargo build
+cargo build --release
 ```
 
-### 基础使用
+### 基础使用（库）
 
 ```rust
 use agentim::{AgentIM, agent::ClaudeAgent, channel::TelegramChannel};
@@ -96,19 +99,11 @@ async fn main() -> anyhow::Result<()> {
     let agentim = AgentIM::new();
 
     // 注册Agent
-    let claude = Arc::new(ClaudeAgent::new(
-        "claude-1".to_string(),
-        "your-api-key".to_string(),
-        None,
-        None,
-    ));
+    let claude = Arc::new(ClaudeAgent::new("claude-1".to_string(), None));
     agentim.register_agent("claude-1".to_string(), claude)?;
 
     // 注册Channel
-    let telegram = Arc::new(TelegramChannel::new(
-        "tg-1".to_string(),
-        "your-bot-token".to_string(),
-    ));
+    let telegram = Arc::new(TelegramChannel::new("tg-1".to_string()));
     agentim.register_channel("tg-1".to_string(), telegram)?;
 
     // 创建Session
@@ -128,14 +123,23 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-### 运行示例
+### CLI使用
 
 ```bash
-# 基础示例
-cargo run --example basic
+# 注册Agent
+./target/release/agentim agent register --id claude-1 --agent-type claude
 
-# Session管理示例
-cargo run --example session_management
+# 注册Channel
+./target/release/agentim channel register --id tg-1 --channel-type telegram
+
+# 创建Session
+./target/release/agentim session create \
+  --agent-id claude-1 \
+  --channel-id tg-1 \
+  --user-id user123
+
+# 查看系统状态
+./target/release/agentim status
 ```
 
 ## API文档
@@ -143,8 +147,6 @@ cargo run --example session_management
 ### AgentIM
 
 核心管理器，负责Agent、Channel和Session的生命周期管理。
-
-#### 主要方法
 
 ```rust
 // Agent管理
@@ -198,22 +200,23 @@ impl Session {
 
 ## 扩展指南
 
-### 添加新的Agent
+### 添加真实的Agent实现
 
 ```rust
 use async_trait::async_trait;
 use agentim::agent::Agent;
 use agentim::config::AgentType;
+use agentim::session::Message;
+use agentim::error::Result;
 
-pub struct MyAgent {
+pub struct MyRealAgent {
     id: String,
     api_key: String,
 }
 
 #[async_trait]
-impl Agent for MyAgent {
+impl Agent for MyRealAgent {
     fn agent_type(&self) -> AgentType {
-        // 需要在config.rs中添加新的AgentType
         AgentType::Claude
     }
 
@@ -222,33 +225,34 @@ impl Agent for MyAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        // 实现消息发送逻辑
+        // 调用真实API
+        let client = reqwest::Client::new();
+        // ... 实现API调用
         Ok("response".to_string())
     }
 
     async fn health_check(&self) -> Result<()> {
-        // 实现健康检查
         Ok(())
     }
 }
 ```
 
-### 添加新的Channel
+### 添加真实的Channel实现
 
 ```rust
 use async_trait::async_trait;
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::ChannelType;
+use agentim::error::Result;
 
-pub struct MyChannel {
+pub struct MyRealChannel {
     id: String,
     credentials: String,
 }
 
 #[async_trait]
-impl Channel for MyChannel {
+impl Channel for MyRealChannel {
     fn channel_type(&self) -> ChannelType {
-        // 需要在config.rs中添加新的ChannelType
         ChannelType::Telegram
     }
 
@@ -257,17 +261,15 @@ impl Channel for MyChannel {
     }
 
     async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        // 实现消息发送逻辑
+        // 调用真实API
         Ok(())
     }
 
     async fn receive_message(&self) -> Result<Option<ChannelMessage>> {
-        // 实现消息接收逻辑
         Ok(None)
     }
 
     async fn health_check(&self) -> Result<()> {
-        // 实现健康检查
         Ok(())
     }
 }
