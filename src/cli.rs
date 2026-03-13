@@ -31,6 +31,15 @@ pub enum Commands {
     Status,
     /// Interactive mode
     Interactive,
+    /// Start Bot server
+    BotServer {
+        /// Telegram bot token
+        #[arg(long)]
+        telegram_token: Option<String>,
+        /// Server address (default: 127.0.0.1:8080)
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        addr: String,
+    },
 }
 
 #[derive(Subcommand)]

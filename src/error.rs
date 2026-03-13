@@ -20,6 +20,9 @@ pub enum AgentError {
     #[error("Message send failed: {0}")]
     SendError(String),
 
+    #[error("Channel error: {0}")]
+    ChannelError(String),
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
@@ -28,6 +31,9 @@ pub enum AgentError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Parse error: {0}")]
+    ParseError(#[from] std::num::ParseIntError),
 
     #[error("Unknown error: {0}")]
     Unknown(String),

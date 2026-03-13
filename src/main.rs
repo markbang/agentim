@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 mod agent;
+mod bot_server;
+mod bots;
 mod channel;
 mod cli;
 mod config;
@@ -11,7 +13,7 @@ mod persistence;
 mod session;
 
 use agent::{ClaudeAgent, CodexAgent, PiAgent};
-use channel::{DiscordChannel, FeishuChannel, QQChannel, TelegramChannel};
+use channel::{Channel, DiscordChannel, FeishuChannel, QQChannel, TelegramChannel};
 use clap::Parser;
 use cli::{AgentAction, ChannelAction, Cli, Commands, SessionAction};
 use manager::AgentIM;
@@ -30,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Session { action } => handle_session_command(action, &agentim).await?,
         Commands::Status => handle_status(&agentim).await?,
         Commands::Interactive => handle_interactive(&agentim).await?,
+        Commands::BotServer { telegram_token, addr } => {
+            handle_bot_server(&agentim, telegram_token, &addr).await?
+        }
     }
 
     Ok(())
@@ -223,4 +228,38 @@ async fn handle_status(agentim: &AgentIM) -> anyhow::Result<()> {
 
 async fn handle_interactive(agentim: &AgentIM) -> anyhow::Result<()> {
     interactive::run_interactive(agentim).await
+}
+
+async fn handle_bot_server(
+    agentim: &AgentIM,
+    telegram_token: Option<String>,
+    addr: &str,
+) -> anyhow::Result<()> {
+    cli::print_header("Bot Server");
+
+    if let Some(token) = telegram_token {
+        cli::print_info("Initializing Telegram Bot...");
+        let tg_bot = Arc::new(bots::TelegramBotChannel::new("telegram-bot".to_string(), token));
+
+        // Register the channel
+        agentim.register_channel("telegram-bot".to_string(), tg_bot.clone())?;
+
+        // Health check
+        match Channel::health_check(tg_bot.as_ref()).await {
+            Ok(_) => cli::print_success("Telegram Bot connected"),
+            Err(e) => cli::print_error(&format!("Telegram Bot connection failed: {}", e)),
+        }
+    }
+
+    let state = bot_server::BotServerState {
+        agentim: Arc::new(agentim.clone()),
+        telegram_channel: None,
+    };
+
+    cli::print_info(&format!("Starting Bot server on {}", addr));
+    cli::print_info("Waiting for incoming messages...");
+
+    bot_server::start_bot_server(state, addr).await?;
+
+    Ok(())
 }
