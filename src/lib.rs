@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod agent;
+pub mod agents;
 pub mod bots;
 pub mod channel;
 pub mod cli;

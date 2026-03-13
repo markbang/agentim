@@ -55,7 +55,8 @@ async fn register_agent_interactive(agentim: &AgentIM) -> anyhow::Result<()> {
     println!("1. Claude");
     println!("2. Codex");
     println!("3. Pi");
-    print!("Select (1-3): ");
+    println!("4. CLI (Interactive)");
+    print!("Select (1-4): ");
     io::stdout().flush()?;
 
     let mut agent_type = String::new();
@@ -89,6 +90,7 @@ async fn register_agent_interactive(agentim: &AgentIM) -> anyhow::Result<()> {
             Arc::new(CodexAgent::new(id.clone(), model))
         }
         "3" => Arc::new(PiAgent::new(id.clone())),
+        "4" => Arc::new(crate::agents::CliAgent::new(id.clone())),
         _ => {
             cli::print_error("Invalid agent type");
             return Ok(());

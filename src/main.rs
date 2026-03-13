@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 mod agent;
+mod agents;
 mod bot_server;
 mod bots;
 mod channel;
@@ -64,6 +65,7 @@ async fn handle_agent_command(action: AgentAction, agentim: &AgentIM) -> anyhow:
                 "claude" => Arc::new(ClaudeAgent::new(id.clone(), model)),
                 "codex" => Arc::new(CodexAgent::new(id.clone(), model)),
                 "pi" => Arc::new(PiAgent::new(id.clone())),
+                "cli" => Arc::new(agents::CliAgent::new(id.clone())),
                 _ => {
                     cli::print_error(&format!("Unknown agent type: {}", agent_type));
                     return Ok(());
