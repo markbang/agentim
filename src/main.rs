@@ -43,11 +43,11 @@ async fn handle_agent_command(action: AgentAction, agentim: &AgentIM) -> anyhow:
                 cli::print_agents_table(agent_list);
             }
         }
-        AgentAction::Register { id, agent_type, api_key, model } => {
+        AgentAction::Register { id, agent_type, model } => {
             let agent: Arc<dyn agent::Agent> = match agent_type.as_str() {
-                "claude" => Arc::new(ClaudeAgent::new(id.clone(), api_key, model, None)),
-                "codex" => Arc::new(CodexAgent::new(id.clone(), api_key, model)),
-                "pi" => Arc::new(PiAgent::new(id.clone(), api_key)),
+                "claude" => Arc::new(ClaudeAgent::new(id.clone(), model)),
+                "codex" => Arc::new(CodexAgent::new(id.clone(), model)),
+                "pi" => Arc::new(PiAgent::new(id.clone())),
                 _ => {
                     cli::print_error(&format!("Unknown agent type: {}", agent_type));
                     return Ok(());
@@ -86,30 +86,12 @@ async fn handle_channel_command(action: ChannelAction, agentim: &AgentIM) -> any
                 cli::print_channels_table(channel_list);
             }
         }
-        ChannelAction::Register { id, channel_type, credentials } => {
+        ChannelAction::Register { id, channel_type } => {
             let channel: Arc<dyn channel::Channel> = match channel_type.as_str() {
-                "telegram" => {
-                    let creds: serde_json::Value = serde_json::from_str(&credentials)?;
-                    let token = creds["token"].as_str().unwrap_or("").to_string();
-                    Arc::new(TelegramChannel::new(id.clone(), token))
-                }
-                "discord" => {
-                    let creds: serde_json::Value = serde_json::from_str(&credentials)?;
-                    let token = creds["token"].as_str().unwrap_or("").to_string();
-                    Arc::new(DiscordChannel::new(id.clone(), token))
-                }
-                "feishu" => {
-                    let creds: serde_json::Value = serde_json::from_str(&credentials)?;
-                    let app_id = creds["app_id"].as_str().unwrap_or("").to_string();
-                    let app_secret = creds["app_secret"].as_str().unwrap_or("").to_string();
-                    Arc::new(FeishuChannel::new(id.clone(), app_id, app_secret))
-                }
-                "qq" => {
-                    let creds: serde_json::Value = serde_json::from_str(&credentials)?;
-                    let bot_id = creds["bot_id"].as_str().unwrap_or("").to_string();
-                    let bot_token = creds["bot_token"].as_str().unwrap_or("").to_string();
-                    Arc::new(QQChannel::new(id.clone(), bot_id, bot_token))
-                }
+                "telegram" => Arc::new(TelegramChannel::new(id.clone())),
+                "discord" => Arc::new(DiscordChannel::new(id.clone())),
+                "feishu" => Arc::new(FeishuChannel::new(id.clone())),
+                "qq" => Arc::new(QQChannel::new(id.clone())),
                 _ => {
                     cli::print_error(&format!("Unknown channel type: {}", channel_type));
                     return Ok(());

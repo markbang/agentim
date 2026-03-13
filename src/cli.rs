@@ -45,9 +45,6 @@ pub enum AgentAction {
         /// Agent type (claude, codex, pi)
         #[arg(short, long)]
         agent_type: String,
-        /// API key
-        #[arg(short, long)]
-        api_key: String,
         /// Model name (optional)
         #[arg(short, long)]
         model: Option<String>,
@@ -78,9 +75,6 @@ pub enum ChannelAction {
         /// Channel type (telegram, discord, feishu, qq)
         #[arg(short, long)]
         channel_type: String,
-        /// Credentials (JSON format)
-        #[arg(short, long)]
-        credentials: String,
     },
     /// Remove a channel
     Remove {

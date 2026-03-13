@@ -12,20 +12,17 @@ pub trait Agent: Send + Sync {
     async fn health_check(&self) -> Result<()>;
 }
 
+/// Claude Agent - 本地模拟实现
 pub struct ClaudeAgent {
     id: String,
-    api_key: String,
     model: String,
-    base_url: String,
 }
 
 impl ClaudeAgent {
-    pub fn new(id: String, api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
+    pub fn new(id: String, model: Option<String>) -> Self {
         Self {
             id,
-            api_key,
             model: model.unwrap_or_else(|| "claude-3-5-sonnet-20241022".to_string()),
-            base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
         }
     }
 }
@@ -41,62 +38,31 @@ impl Agent for ClaudeAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let client = reqwest::Client::new();
-
-        let formatted_messages: Vec<serde_json::Value> = messages
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "role": m.role.to_string(),
-                    "content": m.content
-                })
-            })
-            .collect();
-
-        let body = serde_json::json!({
-            "model": self.model,
-            "max_tokens": 1024,
-            "messages": formatted_messages
-        });
-
-        let response = client
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .json(&body)
-            .send()
-            .await?;
-
-        let result: serde_json::Value = response.json().await?;
-
-        result["content"][0]["text"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| crate::error::AgentError::ApiError("Invalid response format".to_string()))
+        // 本地模拟响应，实际调用由外部CLI处理
+        let last_msg = messages
+            .last()
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let response = format!("[Claude {}] Processed: {}", self.model, last_msg);
+        Ok(response)
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = reqwest::Client::new();
-        client
-            .get(format!("{}/v1/models", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .send()
-            .await?;
+        // 本地检查，总是成功
         Ok(())
     }
 }
 
+/// Codex Agent - 本地模拟实现
 pub struct CodexAgent {
     id: String,
-    api_key: String,
     model: String,
 }
 
 impl CodexAgent {
-    pub fn new(id: String, api_key: String, model: Option<String>) -> Self {
+    pub fn new(id: String, model: Option<String>) -> Self {
         Self {
             id,
-            api_key,
             model: model.unwrap_or_else(|| "code-davinci-002".to_string()),
         }
     }
@@ -113,55 +79,27 @@ impl Agent for CodexAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let client = reqwest::Client::new();
-
-        let prompt = messages
-            .iter()
-            .map(|m| format!("{}: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let body = serde_json::json!({
-            "model": self.model,
-            "prompt": prompt,
-            "max_tokens": 1024,
-            "temperature": 0.7
-        });
-
-        let response = client
-            .post("https://api.openai.com/v1/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
-            .await?;
-
-        let result: serde_json::Value = response.json().await?;
-
-        result["choices"][0]["text"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| crate::error::AgentError::ApiError("Invalid response format".to_string()))
+        let last_msg = messages
+            .last()
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let response = format!("[Codex {}] Processed: {}", self.model, last_msg);
+        Ok(response)
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = reqwest::Client::new();
-        client
-            .get("https://api.openai.com/v1/models")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await?;
         Ok(())
     }
 }
 
+/// Pi Agent - 本地模拟实现
 pub struct PiAgent {
     id: String,
-    api_key: String,
 }
 
 impl PiAgent {
-    pub fn new(id: String, api_key: String) -> Self {
-        Self { id, api_key }
+    pub fn new(id: String) -> Self {
+        Self { id }
     }
 }
 
@@ -176,44 +114,15 @@ impl Agent for PiAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let client = reqwest::Client::new();
-
-        let formatted_messages: Vec<serde_json::Value> = messages
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "role": m.role.to_string(),
-                    "content": m.content
-                })
-            })
-            .collect();
-
-        let body = serde_json::json!({
-            "messages": formatted_messages
-        });
-
-        let response = client
-            .post("https://api.pi.ai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
-            .await?;
-
-        let result: serde_json::Value = response.json().await?;
-
-        result["choices"][0]["message"]["content"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| crate::error::AgentError::ApiError("Invalid response format".to_string()))
+        let last_msg = messages
+            .last()
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        let response = format!("[Pi] Processed: {}", last_msg);
+        Ok(response)
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = reqwest::Client::new();
-        client
-            .get("https://api.pi.ai/v1/models")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await?;
         Ok(())
     }
 }

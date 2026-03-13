@@ -19,14 +19,14 @@ pub trait Channel: Send + Sync {
     async fn health_check(&self) -> Result<()>;
 }
 
+/// Telegram Channel - 本地模拟实现
 pub struct TelegramChannel {
     id: String,
-    bot_token: String,
 }
 
 impl TelegramChannel {
-    pub fn new(id: String, bot_token: String) -> Self {
-        Self { id, bot_token }
+    pub fn new(id: String) -> Self {
+        Self { id }
     }
 }
 
@@ -41,45 +41,27 @@ impl Channel for TelegramChannel {
     }
 
     async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            self.bot_token
-        );
-
-        let body = serde_json::json!({
-            "chat_id": user_id,
-            "text": content
-        });
-
-        client.post(&url).json(&body).send().await?;
+        println!("[Telegram {}] -> User {}: {}", self.id, user_id, content);
         Ok(())
     }
 
     async fn receive_message(&self) -> Result<Option<ChannelMessage>> {
-        // Placeholder for webhook/polling implementation
         Ok(None)
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = format!(
-            "https://api.telegram.org/bot{}/getMe",
-            self.bot_token
-        );
-        client.get(&url).send().await?;
         Ok(())
     }
 }
 
+/// Discord Channel - 本地模拟实现
 pub struct DiscordChannel {
     id: String,
-    bot_token: String,
 }
 
 impl DiscordChannel {
-    pub fn new(id: String, bot_token: String) -> Self {
-        Self { id, bot_token }
+    pub fn new(id: String) -> Self {
+        Self { id }
     }
 }
 
@@ -94,54 +76,27 @@ impl Channel for DiscordChannel {
     }
 
     async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = format!(
-            "https://discord.com/api/v10/channels/{}/messages",
-            user_id
-        );
-
-        let body = serde_json::json!({
-            "content": content
-        });
-
-        client
-            .post(&url)
-            .header("Authorization", format!("Bot {}", self.bot_token))
-            .json(&body)
-            .send()
-            .await?;
+        println!("[Discord {}] -> User {}: {}", self.id, user_id, content);
         Ok(())
     }
 
     async fn receive_message(&self) -> Result<Option<ChannelMessage>> {
-        // Placeholder for webhook implementation
         Ok(None)
     }
 
     async fn health_check(&self) -> Result<()> {
-        let client = reqwest::Client::new();
-        client
-            .get("https://discord.com/api/v10/users/@me")
-            .header("Authorization", format!("Bot {}", self.bot_token))
-            .send()
-            .await?;
         Ok(())
     }
 }
 
+/// Feishu Channel - 本地模拟实现
 pub struct FeishuChannel {
     id: String,
-    app_id: String,
-    app_secret: String,
 }
 
 impl FeishuChannel {
-    pub fn new(id: String, app_id: String, app_secret: String) -> Self {
-        Self {
-            id,
-            app_id,
-            app_secret,
-        }
+    pub fn new(id: String) -> Self {
+        Self { id }
     }
 }
 
@@ -156,23 +111,7 @@ impl Channel for FeishuChannel {
     }
 
     async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = "https://open.feishu.cn/open-apis/im/v1/messages";
-
-        let body = serde_json::json!({
-            "receive_id": user_id,
-            "msg_type": "text",
-            "content": serde_json::json!({
-                "text": content
-            })
-        });
-
-        client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.app_id))
-            .json(&body)
-            .send()
-            .await?;
+        println!("[Feishu {}] -> User {}: {}", self.id, user_id, content);
         Ok(())
     }
 
@@ -185,19 +124,14 @@ impl Channel for FeishuChannel {
     }
 }
 
+/// QQ Channel - 本地模拟实现
 pub struct QQChannel {
     id: String,
-    bot_id: String,
-    bot_token: String,
 }
 
 impl QQChannel {
-    pub fn new(id: String, bot_id: String, bot_token: String) -> Self {
-        Self {
-            id,
-            bot_id,
-            bot_token,
-        }
+    pub fn new(id: String) -> Self {
+        Self { id }
     }
 }
 
@@ -212,22 +146,7 @@ impl Channel for QQChannel {
     }
 
     async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = format!(
-            "https://api.sgroup.qq.com/channels/{}/messages",
-            user_id
-        );
-
-        let body = serde_json::json!({
-            "content": content
-        });
-
-        client
-            .post(&url)
-            .header("Authorization", format!("Bot {}.{}", self.bot_id, self.bot_token))
-            .json(&body)
-            .send()
-            .await?;
+        println!("[QQ {}] -> User {}: {}", self.id, user_id, content);
         Ok(())
     }
 
