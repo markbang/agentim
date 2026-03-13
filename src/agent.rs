@@ -1,7 +1,7 @@
-use async_trait::async_trait;
+use crate::config::AgentType;
 use crate::error::Result;
 use crate::session::Message;
-use crate::config::AgentType;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait Agent: Send + Sync {
@@ -39,10 +39,7 @@ impl Agent for ClaudeAgent {
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
         // 本地模拟响应，实际调用由外部CLI处理
-        let last_msg = messages
-            .last()
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
+        let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Claude {}] Processed: {}", self.model, last_msg);
         Ok(response)
     }
@@ -79,10 +76,7 @@ impl Agent for CodexAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let last_msg = messages
-            .last()
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
+        let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Codex {}] Processed: {}", self.model, last_msg);
         Ok(response)
     }
@@ -114,10 +108,7 @@ impl Agent for PiAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let last_msg = messages
-            .last()
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
+        let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Pi] Processed: {}", last_msg);
         Ok(response)
     }

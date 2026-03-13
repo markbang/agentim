@@ -1,16 +1,16 @@
 mod agent;
 mod channel;
-mod session;
-mod error;
-mod config;
-mod manager;
 mod cli;
+mod config;
+mod error;
+mod manager;
+mod session;
 
-use clap::Parser;
-use cli::{Cli, Commands, AgentAction, ChannelAction, SessionAction};
-use manager::AgentIM;
 use agent::{ClaudeAgent, CodexAgent, PiAgent};
-use channel::{TelegramChannel, DiscordChannel, FeishuChannel, QQChannel};
+use channel::{DiscordChannel, FeishuChannel, QQChannel, TelegramChannel};
+use clap::Parser;
+use cli::{AgentAction, ChannelAction, Cli, Commands, SessionAction};
+use manager::AgentIM;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -39,11 +39,18 @@ async fn handle_agent_command(action: AgentAction, agentim: &AgentIM) -> anyhow:
             if agents.is_empty() {
                 cli::print_info("No agents registered");
             } else {
-                let agent_list: Vec<_> = agents.iter().map(|id| (id.clone(), "N/A".to_string())).collect();
+                let agent_list: Vec<_> = agents
+                    .iter()
+                    .map(|id| (id.clone(), "N/A".to_string()))
+                    .collect();
                 cli::print_agents_table(agent_list);
             }
         }
-        AgentAction::Register { id, agent_type, model } => {
+        AgentAction::Register {
+            id,
+            agent_type,
+            model,
+        } => {
             let agent: Arc<dyn agent::Agent> = match agent_type.as_str() {
                 "claude" => Arc::new(ClaudeAgent::new(id.clone(), model)),
                 "codex" => Arc::new(CodexAgent::new(id.clone(), model)),
@@ -59,17 +66,13 @@ async fn handle_agent_command(action: AgentAction, agentim: &AgentIM) -> anyhow:
         AgentAction::Remove { id } => {
             cli::print_info(&format!("Remove agent '{}' - not yet implemented", id));
         }
-        AgentAction::Health { id } => {
-            match agentim.get_agent(&id) {
-                Ok(agent) => {
-                    match agent.health_check().await {
-                        Ok(_) => cli::print_success(&format!("Agent '{}' is healthy", id)),
-                        Err(e) => cli::print_error(&format!("Agent '{}' health check failed: {}", id, e)),
-                    }
-                }
-                Err(e) => cli::print_error(&format!("Agent not found: {}", e)),
-            }
-        }
+        AgentAction::Health { id } => match agentim.get_agent(&id) {
+            Ok(agent) => match agent.health_check().await {
+                Ok(_) => cli::print_success(&format!("Agent '{}' is healthy", id)),
+                Err(e) => cli::print_error(&format!("Agent '{}' health check failed: {}", id, e)),
+            },
+            Err(e) => cli::print_error(&format!("Agent not found: {}", e)),
+        },
     }
     Ok(())
 }
@@ -82,7 +85,10 @@ async fn handle_channel_command(action: ChannelAction, agentim: &AgentIM) -> any
             if channels.is_empty() {
                 cli::print_info("No channels registered");
             } else {
-                let channel_list: Vec<_> = channels.iter().map(|id| (id.clone(), "N/A".to_string())).collect();
+                let channel_list: Vec<_> = channels
+                    .iter()
+                    .map(|id| (id.clone(), "N/A".to_string()))
+                    .collect();
                 cli::print_channels_table(channel_list);
             }
         }
@@ -103,17 +109,13 @@ async fn handle_channel_command(action: ChannelAction, agentim: &AgentIM) -> any
         ChannelAction::Remove { id } => {
             cli::print_info(&format!("Remove channel '{}' - not yet implemented", id));
         }
-        ChannelAction::Health { id } => {
-            match agentim.get_channel(&id) {
-                Ok(channel) => {
-                    match channel.health_check().await {
-                        Ok(_) => cli::print_success(&format!("Channel '{}' is healthy", id)),
-                        Err(e) => cli::print_error(&format!("Channel '{}' health check failed: {}", id, e)),
-                    }
-                }
-                Err(e) => cli::print_error(&format!("Channel not found: {}", e)),
-            }
-        }
+        ChannelAction::Health { id } => match agentim.get_channel(&id) {
+            Ok(channel) => match channel.health_check().await {
+                Ok(_) => cli::print_success(&format!("Channel '{}' is healthy", id)),
+                Err(e) => cli::print_error(&format!("Channel '{}' health check failed: {}", id, e)),
+            },
+            Err(e) => cli::print_error(&format!("Channel not found: {}", e)),
+        },
     }
     Ok(())
 }
@@ -128,42 +130,57 @@ async fn handle_session_command(action: SessionAction, agentim: &AgentIM) -> any
             } else {
                 let session_list: Vec<_> = sessions
                     .iter()
-                    .map(|s| (s.id.clone(), s.agent_id.clone(), s.channel_id.clone(), s.user_id.clone(), s.messages.len()))
+                    .map(|s| {
+                        (
+                            s.id.clone(),
+                            s.agent_id.clone(),
+                            s.channel_id.clone(),
+                            s.user_id.clone(),
+                            s.messages.len(),
+                        )
+                    })
                     .collect();
                 cli::print_sessions_table(session_list);
             }
         }
-        SessionAction::Create { agent_id, channel_id, user_id } => {
-            match agentim.create_session(agent_id.clone(), channel_id.clone(), user_id.clone()) {
-                Ok(session_id) => {
-                    cli::print_success(&format!("Session created: {}", session_id));
-                    cli::print_info(&format!("Agent: {}, Channel: {}, User: {}", agent_id, channel_id, user_id));
-                }
-                Err(e) => cli::print_error(&format!("Failed to create session: {}", e)),
+        SessionAction::Create {
+            agent_id,
+            channel_id,
+            user_id,
+        } => match agentim.create_session(agent_id.clone(), channel_id.clone(), user_id.clone()) {
+            Ok(session_id) => {
+                cli::print_success(&format!("Session created: {}", session_id));
+                cli::print_info(&format!(
+                    "Agent: {}, Channel: {}, User: {}",
+                    agent_id, channel_id, user_id
+                ));
             }
-        }
-        SessionAction::Get { id } => {
-            match agentim.get_session(&id) {
-                Ok(session) => {
-                    cli::print_header(&format!("Session: {}", id));
-                    cli::print_info(&format!("Agent: {}", session.agent_id));
-                    cli::print_info(&format!("Channel: {}", session.channel_id));
-                    cli::print_info(&format!("User: {}", session.user_id));
-                    cli::print_info(&format!("Messages: {}", session.messages.len()));
-                    cli::print_info(&format!("Created: {}", session.created_at));
-                    cli::print_info(&format!("Updated: {}", session.updated_at));
-                }
-                Err(e) => cli::print_error(&format!("Session not found: {}", e)),
+            Err(e) => cli::print_error(&format!("Failed to create session: {}", e)),
+        },
+        SessionAction::Get { id } => match agentim.get_session(&id) {
+            Ok(session) => {
+                cli::print_header(&format!("Session: {}", id));
+                cli::print_info(&format!("Agent: {}", session.agent_id));
+                cli::print_info(&format!("Channel: {}", session.channel_id));
+                cli::print_info(&format!("User: {}", session.user_id));
+                cli::print_info(&format!("Messages: {}", session.messages.len()));
+                cli::print_info(&format!("Created: {}", session.created_at));
+                cli::print_info(&format!("Updated: {}", session.updated_at));
             }
-        }
-        SessionAction::Delete { id } => {
-            match agentim.delete_session(&id) {
-                Ok(_) => cli::print_success(&format!("Session '{}' deleted", id)),
-                Err(e) => cli::print_error(&format!("Failed to delete session: {}", e)),
-            }
-        }
-        SessionAction::Send { session_id, message } => {
-            cli::print_info(&format!("Sending message to session '{}': {}", session_id, message));
+            Err(e) => cli::print_error(&format!("Session not found: {}", e)),
+        },
+        SessionAction::Delete { id } => match agentim.delete_session(&id) {
+            Ok(_) => cli::print_success(&format!("Session '{}' deleted", id)),
+            Err(e) => cli::print_error(&format!("Failed to delete session: {}", e)),
+        },
+        SessionAction::Send {
+            session_id,
+            message,
+        } => {
+            cli::print_info(&format!(
+                "Sending message to session '{}': {}",
+                session_id, message
+            ));
             cli::print_info("Message sending - not yet fully implemented");
         }
     }

@@ -1,4 +1,4 @@
-use agentim::{AgentIM, agent::ClaudeAgent, channel::TelegramChannel, session::MessageRole};
+use agentim::{agent::ClaudeAgent, channel::TelegramChannel, session::MessageRole, AgentIM};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -10,15 +10,10 @@ async fn main() -> anyhow::Result<()> {
     // Setup agent and channel
     let claude = Arc::new(ClaudeAgent::new(
         "claude-demo".to_string(),
-        "sk-ant-test-key".to_string(),
         Some("claude-3-5-sonnet-20241022".to_string()),
-        None,
     ));
 
-    let telegram = Arc::new(TelegramChannel::new(
-        "tg-demo".to_string(),
-        "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11".to_string(),
-    ));
+    let telegram = Arc::new(TelegramChannel::new("tg-demo".to_string()));
 
     agentim.register_agent("claude-demo".to_string(), claude)?;
     agentim.register_channel("tg-demo".to_string(), telegram)?;
@@ -61,7 +56,11 @@ async fn main() -> anyhow::Result<()> {
         let session = agentim.get_session(session_id)?;
         let context = session.get_context(5);
 
-        println!("Session {} context ({} messages):", session_id, context.len());
+        println!(
+            "Session {} context ({} messages):",
+            session_id,
+            context.len()
+        );
         for msg in &context {
             println!("  [{}] {}", msg.role, msg.content);
         }

@@ -1,4 +1,9 @@
-use agentim::{AgentIM, agent::{ClaudeAgent, CodexAgent, PiAgent}, channel::{TelegramChannel, DiscordChannel, FeishuChannel, QQChannel}, session::MessageRole};
+use agentim::{
+    agent::{ClaudeAgent, CodexAgent, PiAgent},
+    channel::{DiscordChannel, FeishuChannel, QQChannel, TelegramChannel},
+    session::MessageRole,
+    AgentIM,
+};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -11,21 +16,12 @@ async fn main() -> anyhow::Result<()> {
     // Register agents
     let claude = Arc::new(ClaudeAgent::new(
         "claude-main".to_string(),
-        std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
         Some("claude-3-5-sonnet-20241022".to_string()),
-        None,
     ));
 
-    let codex = Arc::new(CodexAgent::new(
-        "codex-main".to_string(),
-        std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-        None,
-    ));
+    let codex = Arc::new(CodexAgent::new("codex-main".to_string(), None));
 
-    let pi = Arc::new(PiAgent::new(
-        "pi-main".to_string(),
-        std::env::var("PI_API_KEY").unwrap_or_default(),
-    ));
+    let pi = Arc::new(PiAgent::new("pi-main".to_string()));
 
     agentim.register_agent("claude-main".to_string(), claude)?;
     agentim.register_agent("codex-main".to_string(), codex)?;
@@ -34,27 +30,13 @@ async fn main() -> anyhow::Result<()> {
     println!("✓ Registered 3 agents");
 
     // Register channels
-    let telegram = Arc::new(TelegramChannel::new(
-        "tg-main".to_string(),
-        std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default(),
-    ));
+    let telegram = Arc::new(TelegramChannel::new("tg-main".to_string()));
 
-    let discord = Arc::new(DiscordChannel::new(
-        "discord-main".to_string(),
-        std::env::var("DISCORD_BOT_TOKEN").unwrap_or_default(),
-    ));
+    let discord = Arc::new(DiscordChannel::new("discord-main".to_string()));
 
-    let feishu = Arc::new(FeishuChannel::new(
-        "feishu-main".to_string(),
-        std::env::var("FEISHU_APP_ID").unwrap_or_default(),
-        std::env::var("FEISHU_APP_SECRET").unwrap_or_default(),
-    ));
+    let feishu = Arc::new(FeishuChannel::new("feishu-main".to_string()));
 
-    let qq = Arc::new(QQChannel::new(
-        "qq-main".to_string(),
-        std::env::var("QQ_BOT_ID").unwrap_or_default(),
-        std::env::var("QQ_BOT_TOKEN").unwrap_or_default(),
-    ));
+    let qq = Arc::new(QQChannel::new("qq-main".to_string()));
 
     agentim.register_channel("tg-main".to_string(), telegram)?;
     agentim.register_channel("discord-main".to_string(), discord)?;
@@ -74,7 +56,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Get session and add messages
     let mut session = agentim.get_session(&session_id)?;
-    session.add_message(MessageRole::System, "You are a helpful coding assistant.".to_string());
+    session.add_message(
+        MessageRole::System,
+        "You are a helpful coding assistant.".to_string(),
+    );
     agentim.update_session(&session_id, session)?;
 
     println!("✓ Session initialized with system prompt");
@@ -92,8 +77,10 @@ async fn main() -> anyhow::Result<()> {
 
     println!("\nActive Sessions:");
     for session in agentim.list_sessions() {
-        println!("  - {} (agent: {}, channel: {}, user: {})",
-            session.id, session.agent_id, session.channel_id, session.user_id);
+        println!(
+            "  - {} (agent: {}, channel: {}, user: {})",
+            session.id, session.agent_id, session.channel_id, session.user_id
+        );
     }
 
     Ok(())

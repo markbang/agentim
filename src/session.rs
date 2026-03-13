@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -90,14 +90,22 @@ mod tests {
 
     #[test]
     fn test_session_creation() {
-        let session = Session::new("agent1".to_string(), "channel1".to_string(), "user1".to_string());
+        let session = Session::new(
+            "agent1".to_string(),
+            "channel1".to_string(),
+            "user1".to_string(),
+        );
         assert_eq!(session.agent_id, "agent1");
         assert_eq!(session.messages.len(), 0);
     }
 
     #[test]
     fn test_add_message() {
-        let mut session = Session::new("agent1".to_string(), "channel1".to_string(), "user1".to_string());
+        let mut session = Session::new(
+            "agent1".to_string(),
+            "channel1".to_string(),
+            "user1".to_string(),
+        );
         session.add_message(MessageRole::User, "Hello".to_string());
         assert_eq!(session.messages.len(), 1);
     }

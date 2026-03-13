@@ -1,10 +1,10 @@
-use dashmap::DashMap;
-use std::sync::Arc;
 use crate::agent::Agent;
 use crate::channel::Channel;
-use crate::session::Session;
-use crate::error::{AgentError, Result};
 use crate::config::{AgentType, ChannelType};
+use crate::error::{AgentError, Result};
+use crate::session::Session;
+use dashmap::DashMap;
+use std::sync::Arc;
 
 pub struct AgentIM {
     agents: Arc<DashMap<String, Arc<dyn Agent>>>,
@@ -69,8 +69,7 @@ impl AgentIM {
     }
 
     pub fn update_session(&self, id: &str, session: Session) -> Result<()> {
-        self.sessions
-            .insert(id.to_string(), session);
+        self.sessions.insert(id.to_string(), session);
         Ok(())
     }
 
@@ -95,11 +94,7 @@ impl AgentIM {
             .collect()
     }
 
-    pub async fn send_to_agent(
-        &self,
-        session_id: &str,
-        user_message: String,
-    ) -> Result<String> {
+    pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {
         let mut session = self.get_session(session_id)?;
         let agent = self.get_agent(&session.agent_id)?;
 
@@ -121,11 +116,7 @@ impl AgentIM {
         Ok(response)
     }
 
-    pub async fn send_to_channel(
-        &self,
-        session_id: &str,
-        message: String,
-    ) -> Result<()> {
+    pub async fn send_to_channel(&self, session_id: &str, message: String) -> Result<()> {
         let session = self.get_session(session_id)?;
         let channel = self.get_channel(&session.channel_id)?;
 
@@ -185,35 +176,32 @@ mod tests {
     #[test]
     fn test_register_agent() {
         let agentim = AgentIM::new();
-        let agent = Arc::new(ClaudeAgent::new(
-            "claude1".to_string(),
-            "test-key".to_string(),
-            None,
-            None,
-        ));
-        agentim.register_agent("claude1".to_string(), agent).unwrap();
+        let agent = Arc::new(ClaudeAgent::new("claude1".to_string(), None));
+        agentim
+            .register_agent("claude1".to_string(), agent)
+            .unwrap();
         assert_eq!(agentim.list_agents().len(), 1);
     }
 
     #[test]
     fn test_create_session() {
         let agentim = AgentIM::new();
-        let agent = Arc::new(ClaudeAgent::new(
-            "claude1".to_string(),
-            "test-key".to_string(),
-            None,
-            None,
-        ));
-        let channel = Arc::new(TelegramChannel::new(
-            "tg1".to_string(),
-            "test-token".to_string(),
-        ));
+        let agent = Arc::new(ClaudeAgent::new("claude1".to_string(), None));
+        let channel = Arc::new(TelegramChannel::new("tg1".to_string()));
 
-        agentim.register_agent("claude1".to_string(), agent).unwrap();
-        agentim.register_channel("tg1".to_string(), channel).unwrap();
+        agentim
+            .register_agent("claude1".to_string(), agent)
+            .unwrap();
+        agentim
+            .register_channel("tg1".to_string(), channel)
+            .unwrap();
 
         let session_id = agentim
-            .create_session("claude1".to_string(), "tg1".to_string(), "user1".to_string())
+            .create_session(
+                "claude1".to_string(),
+                "tg1".to_string(),
+                "user1".to_string(),
+            )
             .unwrap();
 
         let session = agentim.get_session(&session_id).unwrap();

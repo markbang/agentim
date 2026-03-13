@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use colored::*;
-use prettytable::{Table, cell, row};
+use prettytable::{row, Table};
 
 #[derive(Parser)]
 #[command(name = "AgentIM")]
