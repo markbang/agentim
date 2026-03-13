@@ -82,13 +82,30 @@ AgentIM是一个**纯粹的会话和上下文管理框架**，而不是一个API
 
 ## 快速开始
 
-### 构建
+### 方式1：交互式设置（推荐）
 
 ```bash
 cargo build --release
+./target/release/agentim interactive
 ```
 
-### 基础使用（库）
+这将引导你完成：
+1. 注册AI agents（Claude、Codex、Pi）
+2. 注册通讯渠道（Telegram、Discord、Feishu、QQ）
+3. 创建agent和channel之间的会话
+4. 测试消息流
+
+### 方式2：配置文件
+
+```bash
+cp agentim.json.example agentim.json
+# 编辑 agentim.json 配置你的agents和channels
+./start.sh
+```
+
+详见 [SETUP.md](SETUP.md) 获取完整指南。
+
+## 核心特性
 
 ```rust
 use agentim::{AgentIM, agent::ClaudeAgent, channel::TelegramChannel};

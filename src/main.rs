@@ -5,7 +5,9 @@ mod channel;
 mod cli;
 mod config;
 mod error;
+mod interactive;
 mod manager;
+mod persistence;
 mod session;
 
 use agent::{ClaudeAgent, CodexAgent, PiAgent};
@@ -183,7 +185,17 @@ async fn handle_session_command(action: SessionAction, agentim: &AgentIM) -> any
                 "Sending message to session '{}': {}",
                 session_id, message
             ));
-            cli::print_info("Message sending - not yet fully implemented");
+            match agentim.send_to_agent(&session_id, message).await {
+                Ok(response) => {
+                    cli::print_success("Message sent to agent");
+                    cli::print_info(&format!("Agent response: {}", response));
+                    match agentim.send_to_channel(&session_id, response).await {
+                        Ok(_) => cli::print_success("Response sent to channel"),
+                        Err(e) => cli::print_error(&format!("Failed to send to channel: {}", e)),
+                    }
+                }
+                Err(e) => cli::print_error(&format!("Failed to send message: {}", e)),
+            }
         }
     }
     Ok(())
@@ -209,8 +221,6 @@ async fn handle_status(agentim: &AgentIM) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_interactive(_agentim: &AgentIM) -> anyhow::Result<()> {
-    cli::print_header("Interactive Mode");
-    cli::print_info("Interactive mode - not yet implemented");
-    Ok(())
+async fn handle_interactive(agentim: &AgentIM) -> anyhow::Result<()> {
+    interactive::run_interactive(agentim).await
 }
