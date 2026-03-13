@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod agent;
 mod channel;
 mod cli;
@@ -198,7 +200,7 @@ async fn handle_status(agentim: &AgentIM) -> anyhow::Result<()> {
     cli::print_info(&format!("Registered Channels: {}", channels.len()));
     cli::print_info(&format!("Active Sessions: {}", sessions.len()));
 
-    if let Ok(_) = agentim.health_check().await {
+    if agentim.health_check().await.is_ok() {
         cli::print_success("All systems healthy");
     } else {
         cli::print_error("Some systems are unhealthy");

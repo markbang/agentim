@@ -51,17 +51,8 @@ impl std::fmt::Display for ChannelType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub agents: HashMap<String, AgentConfig>,
     pub channels: HashMap<String, ChannelConfig>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            agents: HashMap::new(),
-            channels: HashMap::new(),
-        }
-    }
 }

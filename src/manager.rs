@@ -1,6 +1,5 @@
 use crate::agent::Agent;
 use crate::channel::Channel;
-use crate::config::{AgentType, ChannelType};
 use crate::error::{AgentError, Result};
 use crate::session::Session;
 use dashmap::DashMap;
