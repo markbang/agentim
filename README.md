@@ -55,7 +55,6 @@ AgentIM是一个**纯粹的会话和上下文管理框架**，而不是一个API
 - **Claude**: 本地模拟实现（可扩展为真实API调用）
 - **Codex**: 本地模拟实现（可扩展为真实API调用）
 - **Pi**: 本地模拟实现（可扩展为真实API调用）
-- **CLI**: 交互式命令行Agent - 用户在CLI中直接输入响应
 - 易于添加新的Agent类型
 
 ### 2. 多Channel支持
@@ -91,12 +90,10 @@ cargo build --release
 ```
 
 这将引导你完成：
-1. 注册AI agents（Claude、Codex、Pi、CLI）
+1. 注册AI agents（Claude、Codex、Pi）
 2. 注册通讯渠道（Telegram、Discord、Feishu、QQ）
 3. 创建agent和channel之间的会话
 4. 测试消息流
-
-**CLI Agent特性**: 选择"4. CLI (Interactive)"可以在命令行中直接输入响应，无需连接外部AI服务。
 
 ### 方式2：配置文件
 
@@ -107,14 +104,6 @@ cp agentim.json.example agentim.json
 ```
 
 详见 [SETUP.md](SETUP.md) 获取完整指南。
-
-### 方式3：CLI Agent演示
-
-```bash
-./demo-cli-agent.sh
-```
-
-这将启动交互模式，你可以体验CLI Agent的功能。详见 [CLI_AGENT_GUIDE.md](CLI_AGENT_GUIDE.md)。
 
 ## 核心特性
 
