@@ -40,6 +40,15 @@ pub enum Commands {
         #[arg(long, default_value = "127.0.0.1:8080")]
         addr: String,
     },
+    /// CLI communication with agent
+    Chat {
+        /// Session ID
+        #[arg(short, long)]
+        session_id: String,
+        /// Message to send
+        #[arg(short, long)]
+        message: String,
+    },
 }
 
 #[derive(Subcommand)]

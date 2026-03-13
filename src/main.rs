@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 mod agent;
-mod agents;
 mod bot_server;
 mod bots;
 mod channel;
@@ -36,6 +35,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::BotServer { telegram_token, addr } => {
             handle_bot_server(&agentim, telegram_token, &addr).await?
         }
+        Commands::Chat { session_id, message } => {
+            handle_chat(&agentim, &session_id, &message).await?
+        }
     }
 
     Ok(())
@@ -65,7 +67,6 @@ async fn handle_agent_command(action: AgentAction, agentim: &AgentIM) -> anyhow:
                 "claude" => Arc::new(ClaudeAgent::new(id.clone(), model)),
                 "codex" => Arc::new(CodexAgent::new(id.clone(), model)),
                 "pi" => Arc::new(PiAgent::new(id.clone())),
-                "cli" => Arc::new(agents::CliAgent::new(id.clone())),
                 _ => {
                     cli::print_error(&format!("Unknown agent type: {}", agent_type));
                     return Ok(());
@@ -262,6 +263,26 @@ async fn handle_bot_server(
     cli::print_info("Waiting for incoming messages...");
 
     bot_server::start_bot_server(state, addr).await?;
+
+    Ok(())
+}
+
+async fn handle_chat(agentim: &AgentIM, session_id: &str, message: &str) -> anyhow::Result<()> {
+    cli::print_header("Chat");
+
+    match agentim.send_to_agent(session_id, message.to_string()).await {
+        Ok(response) => {
+            cli::print_success("Agent response:");
+            println!("{}", response);
+
+            // Send response back to channel
+            match agentim.send_to_channel(session_id, response).await {
+                Ok(_) => cli::print_success("Response sent to channel"),
+                Err(e) => cli::print_error(&format!("Failed to send to channel: {}", e)),
+            }
+        }
+        Err(e) => cli::print_error(&format!("Failed to send message: {}", e)),
+    }
 
     Ok(())
 }
