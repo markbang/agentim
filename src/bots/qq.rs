@@ -51,7 +51,7 @@ impl QQBotChannel {
     pub fn add_pending_message(&self, user_id: String, message: String) {
         self.pending_messages
             .entry(user_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(message);
     }
 }
