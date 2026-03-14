@@ -135,6 +135,31 @@ impl AgentIM {
         Ok(())
     }
 
+    pub fn find_or_create_session(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+    ) -> Result<String> {
+        // Look for existing session
+        for session_ref in self.sessions.iter() {
+            let session = session_ref.value();
+            if session.agent_id == agent_id
+                && session.channel_id == channel_id
+                && session.user_id == user_id
+            {
+                return Ok(session.id.clone());
+            }
+        }
+
+        // Create new session if not found
+        self.create_session(
+            agent_id.to_string(),
+            channel_id.to_string(),
+            user_id.to_string(),
+        )
+    }
+
     pub fn delete_session(&self, id: &str) -> Result<()> {
         self.sessions
             .remove(id)

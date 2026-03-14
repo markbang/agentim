@@ -6,9 +6,7 @@ pub mod channel;
 pub mod cli;
 pub mod config;
 pub mod error;
-pub mod interactive;
 pub mod manager;
-pub mod persistence;
 pub mod session;
 
 pub use agent::Agent;
