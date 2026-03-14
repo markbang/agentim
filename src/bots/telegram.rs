@@ -93,11 +93,9 @@ impl Channel for TelegramBotChannel {
         let client = reqwest::Client::new();
         let url = format!("{}/getMe", self.api_url);
 
-        client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| crate::error::AgentError::ChannelError(format!("Telegram health check failed: {}", e)))?;
+        client.get(&url).send().await.map_err(|e| {
+            crate::error::AgentError::ChannelError(format!("Telegram health check failed: {}", e))
+        })?;
 
         Ok(())
     }

@@ -77,7 +77,10 @@ impl Channel for QQBotChannel {
 
         client
             .post(&url)
-            .header("Authorization", format!("Bot {}.{}", self.bot_id, self.bot_token))
+            .header(
+                "Authorization",
+                format!("Bot {}.{}", self.bot_id, self.bot_token),
+            )
             .json(&params)
             .send()
             .await
@@ -96,10 +99,15 @@ impl Channel for QQBotChannel {
 
         client
             .get(&url)
-            .header("Authorization", format!("Bot {}.{}", self.bot_id, self.bot_token))
+            .header(
+                "Authorization",
+                format!("Bot {}.{}", self.bot_id, self.bot_token),
+            )
             .send()
             .await
-            .map_err(|e| crate::error::AgentError::ChannelError(format!("QQ health check failed: {}", e)))?;
+            .map_err(|e| {
+                crate::error::AgentError::ChannelError(format!("QQ health check failed: {}", e))
+            })?;
 
         Ok(())
     }

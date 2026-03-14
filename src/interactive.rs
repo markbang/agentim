@@ -214,7 +214,11 @@ async fn send_message_interactive(agentim: &AgentIM) -> anyhow::Result<()> {
     for (i, session) in sessions.iter().enumerate() {
         println!(
             "{}. {} (Agent: {}, Channel: {}, User: {})",
-            i + 1, session.id, session.agent_id, session.channel_id, session.user_id
+            i + 1,
+            session.id,
+            session.agent_id,
+            session.channel_id,
+            session.user_id
         );
     }
     print!("Select session (1-{}): ", sessions.len());
@@ -273,7 +277,11 @@ async fn view_status(agentim: &AgentIM) -> anyhow::Result<()> {
     for session in sessions {
         println!(
             "  • {} (Agent: {}, Channel: {}, User: {}, Messages: {})",
-            session.id, session.agent_id, session.channel_id, session.user_id, session.messages.len()
+            session.id,
+            session.agent_id,
+            session.channel_id,
+            session.user_id,
+            session.messages.len()
         );
     }
 

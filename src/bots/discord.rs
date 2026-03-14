@@ -96,7 +96,12 @@ impl Channel for DiscordBotChannel {
             .header("Authorization", format!("Bot {}", self.token))
             .send()
             .await
-            .map_err(|e| crate::error::AgentError::ChannelError(format!("Discord health check failed: {}", e)))?;
+            .map_err(|e| {
+                crate::error::AgentError::ChannelError(format!(
+                    "Discord health check failed: {}",
+                    e
+                ))
+            })?;
 
         Ok(())
     }

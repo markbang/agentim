@@ -76,7 +76,9 @@ impl FeishuBotChannel {
         data["tenant_access_token"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| crate::error::AgentError::ChannelError("Failed to get access token".to_string()))
+            .ok_or_else(|| {
+                crate::error::AgentError::ChannelError("Failed to get access token".to_string())
+            })
     }
 
     pub fn get_pending_messages(&self, user_id: &str) -> Vec<String> {

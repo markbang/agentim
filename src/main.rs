@@ -32,12 +32,14 @@ async fn main() -> anyhow::Result<()> {
         Commands::Session { action } => handle_session_command(action, &agentim).await?,
         Commands::Status => handle_status(&agentim).await?,
         Commands::Interactive => handle_interactive(&agentim).await?,
-        Commands::BotServer { telegram_token, addr } => {
-            handle_bot_server(&agentim, telegram_token, &addr).await?
-        }
-        Commands::Chat { session_id, message } => {
-            handle_chat(&agentim, &session_id, &message).await?
-        }
+        Commands::BotServer {
+            telegram_token,
+            addr,
+        } => handle_bot_server(&agentim, telegram_token, &addr).await?,
+        Commands::Chat {
+            session_id,
+            message,
+        } => handle_chat(&agentim, &session_id, &message).await?,
     }
 
     Ok(())
@@ -242,7 +244,10 @@ async fn handle_bot_server(
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
-        let tg_bot = Arc::new(bots::TelegramBotChannel::new("telegram-bot".to_string(), token));
+        let tg_bot = Arc::new(bots::TelegramBotChannel::new(
+            "telegram-bot".to_string(),
+            token,
+        ));
 
         // Register the channel
         agentim.register_channel("telegram-bot".to_string(), tg_bot.clone())?;
