@@ -7,6 +7,9 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+pub const FEISHU_CHANNEL_ID: &str = "feishu-bot";
+pub const DEFAULT_AGENT_ID: &str = "default-agent";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeishuMessage {
     pub token: String,
@@ -141,29 +144,19 @@ impl Channel for FeishuBotChannel {
     }
 }
 
-pub async fn feishu_webhook_handler(
-    channel: Arc<FeishuBotChannel>,
-    agentim: Arc<AgentIM>,
-    message: FeishuMessage,
-) -> Result<()> {
-    let user_id = message.event.message.sender_id.user_id.clone();
-    let content = message.event.message.content.clone();
-    let _chat_id = message.event.message.chat_id.clone();
+pub async fn feishu_webhook_handler(agentim: Arc<AgentIM>, message: FeishuMessage) -> Result<()> {
+    let user_id = message.event.message.sender_id.user_id;
+    let content = message.event.message.content;
 
-    // Store the message
-    channel.add_pending_message(user_id.clone(), content.clone());
-
-    // Find sessions for this user
-    let sessions = agentim.list_sessions();
-    for session in sessions {
-        if session.user_id == user_id && session.channel_id == channel.id() {
-            // Send to agent
-            if let Ok(response) = agentim.send_to_agent(&session.id, content.clone()).await {
-                // Send response back to Feishu
-                let _ = channel.send_message(&user_id, &response).await;
-            }
-        }
-    }
+    agentim
+        .handle_incoming_message(
+            DEFAULT_AGENT_ID,
+            FEISHU_CHANNEL_ID,
+            &user_id,
+            Some(&user_id),
+            content,
+        )
+        .await?;
 
     Ok(())
 }

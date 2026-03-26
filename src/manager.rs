@@ -118,9 +118,37 @@ impl AgentIM {
     pub async fn send_to_channel(&self, session_id: &str, message: String) -> Result<()> {
         let session = self.get_session(session_id)?;
         let channel = self.get_channel(&session.channel_id)?;
+        let reply_target = session
+            .metadata
+            .get("reply_target")
+            .cloned()
+            .unwrap_or_else(|| session.user_id.clone());
 
-        channel.send_message(&session.user_id, &message).await?;
+        channel.send_message(&reply_target, &message).await?;
         Ok(())
+    }
+
+    pub async fn handle_incoming_message(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+    ) -> Result<String> {
+        let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
+
+        if let Some(reply_target) = reply_target {
+            let mut session = self.get_session(&session_id)?;
+            session
+                .metadata
+                .insert("reply_target".to_string(), reply_target.to_string());
+            self.update_session(&session_id, session)?;
+        }
+
+        let response = self.send_to_agent(&session_id, user_message).await?;
+        self.send_to_channel(&session_id, response.clone()).await?;
+        Ok(response)
     }
 
     pub async fn health_check(&self) -> Result<()> {
@@ -187,8 +215,12 @@ impl Clone for AgentIM {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::ClaudeAgent;
-    use crate::channel::TelegramChannel;
+    use crate::agent::{Agent, ClaudeAgent};
+    use crate::channel::{Channel, ChannelMessage, TelegramChannel};
+    use crate::config::{AgentType, ChannelType};
+    use crate::session::Message;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_agentim_creation() {
@@ -231,5 +263,100 @@ mod tests {
         let session = agentim.get_session(&session_id).unwrap();
         assert_eq!(session.agent_id, "claude1");
         assert_eq!(session.channel_id, "tg1");
+    }
+
+    struct MockAgent;
+
+    #[async_trait]
+    impl Agent for MockAgent {
+        fn agent_type(&self) -> AgentType {
+            AgentType::Claude
+        }
+
+        fn id(&self) -> &str {
+            "mock-agent"
+        }
+
+        async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+            let last = messages.last().map(|msg| msg.content.clone()).unwrap_or_default();
+            Ok(format!("echo:{}", last))
+        }
+
+        async fn health_check(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    struct MockChannel {
+        sent_messages: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    #[async_trait]
+    impl Channel for MockChannel {
+        fn channel_type(&self) -> ChannelType {
+            ChannelType::Discord
+        }
+
+        fn id(&self) -> &str {
+            "mock-channel"
+        }
+
+        async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
+            self.sent_messages
+                .lock()
+                .unwrap()
+                .push((user_id.to_string(), content.to_string()));
+            Ok(())
+        }
+
+        async fn receive_message(&self) -> Result<Option<ChannelMessage>> {
+            Ok(None)
+        }
+
+        async fn health_check(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_incoming_message_autocreates_session_and_uses_reply_target() {
+        let agentim = AgentIM::new();
+        let sent_messages = Arc::new(Mutex::new(Vec::new()));
+
+        agentim
+            .register_agent("default-agent".to_string(), Arc::new(MockAgent))
+            .unwrap();
+        agentim
+            .register_channel(
+                "discord-bot".to_string(),
+                Arc::new(MockChannel {
+                    sent_messages: sent_messages.clone(),
+                }),
+            )
+            .unwrap();
+
+        let response = agentim
+            .handle_incoming_message(
+                "default-agent",
+                "discord-bot",
+                "user-1",
+                Some("channel-42"),
+                "ping".to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response, "echo:ping");
+
+        let sessions = agentim.list_sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].user_id, "user-1");
+        assert_eq!(
+            sessions[0].metadata.get("reply_target"),
+            Some(&"channel-42".to_string())
+        );
+
+        let sent = sent_messages.lock().unwrap();
+        assert_eq!(sent.as_slice(), &[("channel-42".to_string(), "echo:ping".to_string())]);
     }
 }

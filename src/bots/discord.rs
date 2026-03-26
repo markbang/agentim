@@ -7,6 +7,9 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+pub const DISCORD_CHANNEL_ID: &str = "discord-bot";
+pub const DEFAULT_AGENT_ID: &str = "default-agent";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordMessage {
     pub id: String,
@@ -107,28 +110,20 @@ impl Channel for DiscordBotChannel {
     }
 }
 
-pub async fn discord_webhook_handler(
-    channel: Arc<DiscordBotChannel>,
-    agentim: Arc<AgentIM>,
-    message: DiscordMessage,
-) -> Result<()> {
-    let user_id = message.author.id.clone();
-    let content = message.content.clone();
+pub async fn discord_webhook_handler(agentim: Arc<AgentIM>, message: DiscordMessage) -> Result<()> {
+    let user_id = message.author.id;
+    let reply_target = message.channel_id;
+    let content = message.content;
 
-    // Store the message
-    channel.add_pending_message(user_id.clone(), content.clone());
-
-    // Find sessions for this user
-    let sessions = agentim.list_sessions();
-    for session in sessions {
-        if session.user_id == user_id && session.channel_id == channel.id() {
-            // Send to agent
-            if let Ok(response) = agentim.send_to_agent(&session.id, content.clone()).await {
-                // Send response back to Discord
-                let _ = channel.send_message(&message.channel_id, &response).await;
-            }
-        }
-    }
+    agentim
+        .handle_incoming_message(
+            DEFAULT_AGENT_ID,
+            DISCORD_CHANNEL_ID,
+            &user_id,
+            Some(&reply_target),
+            content,
+        )
+        .await?;
 
     Ok(())
 }

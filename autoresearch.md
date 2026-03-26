@@ -71,4 +71,8 @@ The project is only "done" when most of the score comes from executable checks, 
 
 ## What's Been Tried
 - Session initialized by reading the repo, checking docs/code drift, and identifying likely compile/runtime gaps before the first benchmark.
-- No product changes yet.
+- Established a mixed dynamic/static benchmark in `autoresearch.sh` so progress is measurable even when features are incomplete.
+- Added a shared incoming-message bridge path in `AgentIM` that auto-creates sessions, stores per-session `reply_target`, routes to the selected agent, and sends the response back through the correct channel target.
+- Rewired `src/bot_server.rs` to expose Telegram, Discord, Feishu, and QQ webhook routes instead of Telegram-only routing.
+- Added executable reviewer coverage in `tests/review_bridge.rs` to validate multi-platform webhook routing, reply-target behavior, and session reuse.
+- Extended startup wiring so Discord/Feishu/QQ channels can be initialized coherently, with explicit credential flags plus backward-compatible compound-token fallbacks for Feishu/QQ.

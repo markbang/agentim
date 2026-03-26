@@ -13,13 +13,29 @@ pub struct Args {
     #[arg(long)]
     pub discord_token: Option<String>,
 
-    /// Feishu bot token
+    /// Deprecated fallback: Feishu credentials as "app_id:app_secret"
     #[arg(long)]
     pub feishu_token: Option<String>,
 
-    /// QQ bot token
+    /// Feishu app id
+    #[arg(long)]
+    pub feishu_app_id: Option<String>,
+
+    /// Feishu app secret
+    #[arg(long)]
+    pub feishu_app_secret: Option<String>,
+
+    /// Deprecated fallback: QQ credentials as "bot_id:bot_token"
     #[arg(long)]
     pub qq_token: Option<String>,
+
+    /// QQ bot id
+    #[arg(long)]
+    pub qq_bot_id: Option<String>,
+
+    /// QQ bot token
+    #[arg(long)]
+    pub qq_bot_token: Option<String>,
 
     /// Agent type to use (claude, codex, pi) - default: claude
     #[arg(long, default_value = "claude")]

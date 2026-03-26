@@ -1,9 +1,32 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
+use crate::manager::AgentIM;
 use async_trait::async_trait;
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub const TELEGRAM_CHANNEL_ID: &str = "telegram-bot";
+pub const DEFAULT_AGENT_ID: &str = "default-agent";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramUpdate {
+    pub update_id: i64,
+    pub message: Option<TelegramMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramMessage {
+    pub message_id: i64,
+    pub chat: TelegramChat,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramChat {
+    pub id: i64,
+}
 
 pub struct TelegramBotChannel {
     id: String,
@@ -99,4 +122,23 @@ impl Channel for TelegramBotChannel {
 
         Ok(())
     }
+}
+
+pub async fn telegram_webhook_handler(agentim: Arc<AgentIM>, update: TelegramUpdate) -> Result<()> {
+    if let Some(message) = update.message {
+        if let Some(text) = message.text {
+            let user_id = message.chat.id.to_string();
+            agentim
+                .handle_incoming_message(
+                    DEFAULT_AGENT_ID,
+                    TELEGRAM_CHANNEL_ID,
+                    &user_id,
+                    Some(&user_id),
+                    text,
+                )
+                .await?;
+        }
+    }
+
+    Ok(())
 }
