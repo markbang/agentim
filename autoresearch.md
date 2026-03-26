@@ -91,3 +91,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer coverage for binary dry-run behavior so the direct CLI path stays usable, not just the shell wrapper.
 - Added runtime JSON config loading via `--config-file` / `AGENTIM_CONFIG_FILE`, with CLI flags still taking precedence over file defaults.
 - Replaced the stale `agentim.json.example` with a config schema that matches the actual runtime and added reviewer coverage proving config-driven startup works.
+- Hardened session snapshot persistence by writing through a sibling temp file and renaming it into place instead of writing snapshots directly over the target path.
+- Added reviewer coverage for clean snapshot persistence so runtime saves leave a valid JSON file without lingering temp artifacts.

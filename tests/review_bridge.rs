@@ -384,6 +384,44 @@ async fn readiness_reviewer_persists_sessions_between_restarts() {
 }
 
 #[tokio::test]
+async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
+    let state_file = temp_state_file();
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            state_file: Some(state_file.clone()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":10,"message":{"message_id":100,"chat":{"id":1000},"text":"save cleanly"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let snapshot = std::fs::read_to_string(&state_file).unwrap();
+    let sessions: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+    assert!(sessions.is_array());
+
+    let temp_path = std::path::Path::new(&state_file)
+        .with_extension(format!("{}.tmp", std::process::id()));
+    assert!(!temp_path.exists());
+
+    let _ = std::fs::remove_file(state_file);
+}
+
+#[tokio::test]
 async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);

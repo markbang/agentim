@@ -66,6 +66,15 @@ if [ "$persistence_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge persistence_reviewer_writes_clean_snapshot_without_temp_artifacts \
+  >/tmp/agentim-persistence-clean-test.out 2>/tmp/agentim-persistence-clean-test.err
+persistence_clean_test_status=$?
+set -e
+if [ "$persistence_clean_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge security_reviewer_rejects_missing_secret_and_accepts_valid_secret \
   >/tmp/agentim-security-test.out 2>/tmp/agentim-security-test.err
 security_test_status=$?
@@ -201,6 +210,12 @@ if [ "$persistence_test_status" -ne 0 ]; then
   echo '--- persistence review test tail ---'
   tail -20 /tmp/agentim-persistence-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-persistence-test.out 2>/dev/null || true
+fi
+
+if [ "$persistence_clean_test_status" -ne 0 ]; then
+  echo '--- persistence clean-snapshot review test tail ---'
+  tail -20 /tmp/agentim-persistence-clean-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-persistence-clean-test.out 2>/dev/null || true
 fi
 
 if [ "$security_test_status" -ne 0 ]; then

@@ -96,14 +96,20 @@ impl AgentIM {
     pub fn save_sessions_to_path(&self, path: &str) -> Result<()> {
         let sessions = self.list_sessions();
         let content = serde_json::to_string_pretty(&sessions)?;
+        let path = std::path::Path::new(path);
 
-        if let Some(parent) = std::path::Path::new(path).parent() {
+        if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
             }
         }
 
-        std::fs::write(path, content)?;
+        let temp_path = path.with_extension(format!(
+            "{}.tmp",
+            std::process::id()
+        ));
+        std::fs::write(&temp_path, content)?;
+        std::fs::rename(&temp_path, path)?;
         Ok(())
     }
 
