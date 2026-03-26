@@ -21,6 +21,7 @@ args=()
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && args+=(--webhook-secret "$AGENTIM_WEBHOOK_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && args+=(--webhook-signing-secret "$AGENTIM_WEBHOOK_SIGNING_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_MAX_SKEW_SECONDS:-}" ]] && args+=(--webhook-max-skew-seconds "$AGENTIM_WEBHOOK_MAX_SKEW_SECONDS")
+[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && args+=(--telegram-webhook-secret-token "$TELEGRAM_WEBHOOK_SECRET_TOKEN")
 
 if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
   args+=(--telegram-token "$TELEGRAM_TOKEN")
@@ -61,6 +62,7 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
+[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && echo "Telegram native secret: enabled"
 echo
 
 echo "Command:"

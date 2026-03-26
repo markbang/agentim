@@ -63,6 +63,7 @@ pub struct BotServerConfig {
     pub webhook_secret: Option<String>,
     pub webhook_signing_secret: Option<String>,
     pub webhook_max_skew_seconds: i64,
+    pub telegram_webhook_secret_token: Option<String>,
 }
 
 impl BotServerConfig {
@@ -94,6 +95,7 @@ impl Default for BotServerConfig {
             webhook_secret: None,
             webhook_signing_secret: None,
             webhook_max_skew_seconds: 300,
+            telegram_webhook_secret_token: None,
         }
     }
 }
@@ -125,6 +127,7 @@ struct ReviewResponse {
     webhook_secret_enabled: bool,
     webhook_signing_enabled: bool,
     webhook_max_skew_seconds: i64,
+    telegram_webhook_secret_token_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -226,6 +229,22 @@ fn authorize_signed_webhook(headers: &HeaderMap, body: &Bytes, state: &AppState)
     Ok(())
 }
 
+fn authorize_telegram_secret_token(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
+    let Some(expected) = state.config.telegram_webhook_secret_token.as_deref() else {
+        return Ok(());
+    };
+
+    let provided = headers
+        .get("x-telegram-bot-api-secret-token")
+        .and_then(|value| value.to_str().ok());
+
+    if provided != Some(expected) {
+        return Err("missing or invalid x-telegram-bot-api-secret-token".to_string());
+    }
+
+    Ok(())
+}
+
 fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
     serde_json::from_slice(body).map_err(|err| err.to_string())
 }
@@ -280,6 +299,7 @@ async fn reviewz(
                 webhook_secret_enabled: true,
                 webhook_signing_enabled: false,
                 webhook_max_skew_seconds: 0,
+                telegram_webhook_secret_token_enabled: false,
             }),
         );
     }
@@ -302,6 +322,10 @@ async fn reviewz(
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
             webhook_signing_enabled: state.config.webhook_signing_secret.is_some(),
             webhook_max_skew_seconds: state.config.webhook_max_skew_seconds,
+            telegram_webhook_secret_token_enabled: state
+                .config
+                .telegram_webhook_secret_token
+                .is_some(),
         }),
     )
 }
@@ -315,6 +339,9 @@ async fn telegram_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_telegram_secret_token(&headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
 

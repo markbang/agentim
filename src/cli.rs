@@ -9,6 +9,10 @@ pub struct Args {
     #[arg(long)]
     pub telegram_token: Option<String>,
 
+    /// Native Telegram webhook secret token expected in x-telegram-bot-api-secret-token
+    #[arg(long)]
+    pub telegram_webhook_secret_token: Option<String>,
+
     /// Discord bot token
     #[arg(long)]
     pub discord_token: Option<String>,

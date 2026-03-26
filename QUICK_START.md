@@ -39,6 +39,7 @@ export AGENTIM_MAX_SESSION_MESSAGES=50
 export AGENTIM_WEBHOOK_SECRET=change-me
 export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
 export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
+export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```

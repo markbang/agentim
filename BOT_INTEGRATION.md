@@ -85,6 +85,13 @@ export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
 # 并附带 x-agentim-timestamp / x-agentim-nonce
 ```
 
+Telegram 还支持一个更原生的 secret token 校验头：
+
+```bash
+export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
+# 请求需要带 x-telegram-bot-api-secret-token: tg-native-secret
+```
+
 如果你希望 session 历史不会无限增长：
 
 ```bash

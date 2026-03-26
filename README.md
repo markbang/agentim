@@ -106,6 +106,13 @@ export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
 #   x-agentim-signature=sha256(<hmac>)
 ```
 
+如果你在 Telegram 上想启用原生 secret token 校验：
+
+```bash
+export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
+# Telegram 会发送 x-telegram-bot-api-secret-token
+```
+
 先做 dry-run 看启动配置是否正确：
 
 ```bash

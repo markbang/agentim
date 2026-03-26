@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --max-session-messages --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
+  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --max-session-messages --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -125,6 +125,15 @@ cargo test --quiet --test review_bridge security_reviewer_rejects_invalid_signed
 signed_security_test_status=$?
 set -e
 if [ "$signed_security_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge security_reviewer_accepts_telegram_secret_token_only_when_header_matches \
+  >/tmp/agentim-telegram-secret-test.out 2>/tmp/agentim-telegram-secret-test.err
+telegram_secret_test_status=$?
+set -e
+if [ "$telegram_secret_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -297,6 +306,12 @@ if [ "$signed_security_test_status" -ne 0 ]; then
   echo '--- signed security review test tail ---'
   tail -20 /tmp/agentim-signed-security-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-signed-security-test.out 2>/dev/null || true
+fi
+
+if [ "$telegram_secret_test_status" -ne 0 ]; then
+  echo '--- telegram native secret review test tail ---'
+  tail -20 /tmp/agentim-telegram-secret-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-telegram-secret-test.out 2>/dev/null || true
 fi
 
 if [ "$ops_test_status" -ne 0 ]; then

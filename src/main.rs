@@ -43,6 +43,7 @@ struct RuntimeConfig {
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
+    telegram_webhook_secret_token: Option<String>,
     discord_token: Option<String>,
     feishu_token: Option<String>,
     feishu_app_id: Option<String>,
@@ -130,6 +131,10 @@ async fn main() -> anyhow::Result<()> {
     let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
+    let telegram_webhook_secret_token = merge_option(
+        args.telegram_webhook_secret_token,
+        runtime_config.telegram_webhook_secret_token,
+    );
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let feishu_token = merge_option(args.feishu_token, runtime_config.feishu_token);
     let feishu_app_id = merge_option(args.feishu_app_id, runtime_config.feishu_app_id);
@@ -300,6 +305,10 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    if telegram_webhook_secret_token.is_some() {
+        cli::print_info("Telegram native webhook secret token enabled");
+    }
+
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
         return Ok(());
@@ -319,6 +328,7 @@ async fn main() -> anyhow::Result<()> {
         webhook_secret,
         webhook_signing_secret,
         webhook_max_skew_seconds,
+        telegram_webhook_secret_token,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;

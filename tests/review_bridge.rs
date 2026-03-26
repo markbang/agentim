@@ -838,6 +838,59 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 }
 
 #[tokio::test]
+async fn security_reviewer_accepts_telegram_secret_token_only_when_header_matches() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            telegram_webhook_secret_token: Some("tg-native".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let body = r#"{"update_id":15,"message":{"message_id":150,"chat":{"id":15},"text":"telegram native"}}"#;
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .header("x-telegram-bot-api-secret-token", "wrong")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+
+    let ok = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .header("x-telegram-bot-api-secret-token", "tg-native")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -861,6 +914,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             webhook_secret: Some("inspect".to_string()),
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
+            telegram_webhook_secret_token: Some("tg-inspect".to_string()),
             ..BotServerConfig::default()
         },
     );
@@ -901,6 +955,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["webhook_secret_enabled"], true);
     assert_eq!(review_json["webhook_signing_enabled"], true);
     assert_eq!(review_json["webhook_max_skew_seconds"], 120);
+    assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
 }
 
 #[test]
@@ -941,6 +996,7 @@ fn usability_reviewer_loads_runtime_config_file() {
   "webhook_secret": "cfg-secret",
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
+  "telegram_webhook_secret_token": "tg-config",
   "addr": "127.0.0.1:9090"
 }"#;
     std::fs::write(&config_path, config).unwrap();
@@ -957,6 +1013,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
+    assert!(stdout.contains("Telegram native webhook secret token enabled"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);

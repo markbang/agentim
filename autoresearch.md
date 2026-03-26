@@ -101,3 +101,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Updated examples/docs and added reviewer coverage proving prefix-based room routing overrides the platform default while unrelated rooms still fall back correctly.
 - Added optional HMAC-signed webhook verification with timestamp/nonce headers and replay protection (`--webhook-signing-secret`, `--webhook-max-skew-seconds`) on top of the simpler shared-secret guard.
 - Exposed signed-webhook status through `/reviewz`, updated startup/docs/examples, and added reviewer coverage proving missing/invalid signatures are rejected while valid signed requests pass exactly once.
+- Added a first platform-native verification adapter for Telegram via `--telegram-webhook-secret-token` / `TELEGRAM_WEBHOOK_SECRET_TOKEN`, enforced with `x-telegram-bot-api-secret-token`.
+- Updated Telegram bot setup support (`set_webhook_with_secret`), docs/startup/config, and reviewer coverage so Telegram-native secret-token protection is exercised end-to-end.

@@ -46,11 +46,23 @@ impl TelegramBotChannel {
     }
 
     pub async fn set_webhook(&self, webhook_url: &str) -> Result<()> {
+        self.set_webhook_with_secret(webhook_url, None).await
+    }
+
+    pub async fn set_webhook_with_secret(
+        &self,
+        webhook_url: &str,
+        secret_token: Option<&str>,
+    ) -> Result<()> {
         let client = reqwest::Client::new();
         let url = format!("{}/setWebhook", self.api_url);
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "url": webhook_url
         });
+
+        if let Some(secret_token) = secret_token {
+            params["secret_token"] = serde_json::Value::String(secret_token.to_string());
+        }
 
         client
             .post(&url)
