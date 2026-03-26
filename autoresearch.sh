@@ -120,6 +120,15 @@ if [ "$summary_trim_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge readiness_reviewer_compacts_trimmed_turns_into_turn_pairs \
+  >/tmp/agentim-summary-pair-test.out 2>/tmp/agentim-summary-pair-test.err
+summary_pair_test_status=$?
+set -e
+if [ "$summary_pair_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge readiness_reviewer_persists_sessions_between_restarts \
   >/tmp/agentim-persistence-test.out 2>/tmp/agentim-persistence-test.err
 persistence_test_status=$?
@@ -345,6 +354,12 @@ if [ "$summary_trim_test_status" -ne 0 ]; then
   echo '--- summary-trim review test tail ---'
   tail -20 /tmp/agentim-summary-trim-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-summary-trim-test.out 2>/dev/null || true
+fi
+
+if [ "$summary_pair_test_status" -ne 0 ]; then
+  echo '--- summary-pair review test tail ---'
+  tail -20 /tmp/agentim-summary-pair-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-summary-pair-test.out 2>/dev/null || true
 fi
 
 if [ "$persistence_test_status" -ne 0 ]; then

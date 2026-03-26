@@ -170,17 +170,34 @@ impl Session {
     }
 
     fn update_history_summary(&mut self, removed_messages: &[Message]) {
-        let new_fragments = removed_messages
+        let compact_messages = removed_messages
             .iter()
             .filter(|message| message.role != MessageRole::System)
-            .map(|message| {
-                format!(
-                    "[{}] {}",
-                    message.role,
-                    message.content.replace('\n', " ")
-                )
-            })
+            .cloned()
             .collect::<Vec<_>>();
+
+        let mut new_fragments = Vec::new();
+        let mut index = 0;
+        while index < compact_messages.len() {
+            let current = &compact_messages[index];
+            let current_content = current.content.replace('\n', " ");
+
+            if current.role == MessageRole::User && index + 1 < compact_messages.len() {
+                let next = &compact_messages[index + 1];
+                if next.role == MessageRole::Assistant {
+                    new_fragments.push(format!(
+                        "[turn] {} => {}",
+                        current_content,
+                        next.content.replace('\n', " ")
+                    ));
+                    index += 2;
+                    continue;
+                }
+            }
+
+            new_fragments.push(format!("[{}] {}", current.role, current_content));
+            index += 1;
+        }
 
         if new_fragments.is_empty() {
             return;
@@ -277,7 +294,7 @@ mod tests {
 
         assert_eq!(context[0].role, MessageRole::System);
         assert!(context[0].content.starts_with("Earlier context summary:"));
-        assert!(context[0].content.contains("u1"));
+        assert!(context[0].content.contains("[turn] u1 => a1"));
         assert_eq!(context[1].content, "u2");
         assert_eq!(context[2].content, "a2");
     }

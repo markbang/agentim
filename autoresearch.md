@@ -113,3 +113,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Updated runtime/docs/examples and reviewer coverage so rotated backup snapshots are preserved as valid JSON while `/reviewz` reports the configured backup depth.
 - Added backup-aware restore logic so startup can fall back to the newest valid rotated snapshot when the primary state file is corrupt.
 - Added reviewer coverage proving rotated backup recovery works instead of failing hard on a broken primary snapshot.
+- Improved `history_summary` compaction so trimmed user/assistant turns are collapsed into deterministic `[turn] user => assistant` fragments rather than noisier per-message listings.
+- Added reviewer/unit coverage proving trimmed history summaries now preserve paired turn structure in a more compact form.

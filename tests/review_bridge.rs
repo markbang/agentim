@@ -821,6 +821,51 @@ async fn readiness_reviewer_exposes_history_summary_after_trimming() {
 }
 
 #[tokio::test]
+async fn readiness_reviewer_compacts_trimmed_turns_into_turn_pairs() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            max_session_messages: Some(2),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":27,"message":{"message_id":270,"chat":{"id":6060},"text":"pair one"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":28,"message":{"message_id":280,"chat":{"id":6060},"text":"pair two"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let session = agentim.list_sessions().into_iter().next().unwrap();
+    let summary = session.metadata.get("history_summary").cloned().unwrap();
+    assert!(summary.contains("[turn] pair one => default:pair one"));
+}
+
+#[tokio::test]
 async fn readiness_reviewer_persists_sessions_between_restarts() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
