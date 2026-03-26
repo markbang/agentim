@@ -102,6 +102,15 @@ if [ "$max_history_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge readiness_reviewer_preserves_system_messages_when_trimming_history \
+  >/tmp/agentim-system-trim-test.out 2>/tmp/agentim-system-trim-test.err
+system_trim_test_status=$?
+set -e
+if [ "$system_trim_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge readiness_reviewer_persists_sessions_between_restarts \
   >/tmp/agentim-persistence-test.out 2>/tmp/agentim-persistence-test.err
 persistence_test_status=$?
@@ -297,6 +306,12 @@ if [ "$max_history_test_status" -ne 0 ]; then
   echo '--- max-history review test tail ---'
   tail -20 /tmp/agentim-max-history-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-max-history-test.out 2>/dev/null || true
+fi
+
+if [ "$system_trim_test_status" -ne 0 ]; then
+  echo '--- system-trim review test tail ---'
+  tail -20 /tmp/agentim-system-trim-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-system-trim-test.out 2>/dev/null || true
 fi
 
 if [ "$persistence_test_status" -ne 0 ]; then

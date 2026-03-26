@@ -84,9 +84,50 @@ impl Session {
     }
 
     pub fn trim_history(&mut self, max_messages: usize) {
-        while self.messages.len() > max_messages {
-            self.messages.pop_front();
+        if max_messages == 0 {
+            self.messages.clear();
+            self.updated_at = Utc::now();
+            return;
         }
+
+        if self.messages.len() <= max_messages {
+            self.updated_at = Utc::now();
+            return;
+        }
+
+        let system_ids = self
+            .messages
+            .iter()
+            .filter(|message| message.role == MessageRole::System)
+            .map(|message| message.id.clone())
+            .collect::<Vec<_>>();
+
+        let keep_ids = if system_ids.len() >= max_messages {
+            system_ids
+                .into_iter()
+                .rev()
+                .take(max_messages)
+                .collect::<Vec<_>>()
+        } else {
+            let non_system_budget = max_messages - system_ids.len();
+            let mut ids = system_ids;
+            ids.extend(
+                self.messages
+                    .iter()
+                    .rev()
+                    .filter(|message| message.role != MessageRole::System)
+                    .take(non_system_budget)
+                    .map(|message| message.id.clone()),
+            );
+            ids
+        };
+
+        self.messages = self
+            .messages
+            .iter()
+            .filter(|message| keep_ids.contains(&message.id))
+            .cloned()
+            .collect();
         self.updated_at = Utc::now();
     }
 }
@@ -115,5 +156,26 @@ mod tests {
         );
         session.add_message(MessageRole::User, "Hello".to_string());
         assert_eq!(session.messages.len(), 1);
+    }
+
+    #[test]
+    fn test_trim_history_preserves_system_messages_when_possible() {
+        let mut session = Session::new(
+            "agent1".to_string(),
+            "channel1".to_string(),
+            "user1".to_string(),
+        );
+        session.add_message(MessageRole::System, "system".to_string());
+        session.add_message(MessageRole::User, "u1".to_string());
+        session.add_message(MessageRole::Assistant, "a1".to_string());
+        session.add_message(MessageRole::User, "u2".to_string());
+        session.add_message(MessageRole::Assistant, "a2".to_string());
+
+        session.trim_history(3);
+
+        assert_eq!(session.messages.len(), 3);
+        assert_eq!(session.messages[0].role, MessageRole::System);
+        assert_eq!(session.messages[1].content, "u2");
+        assert_eq!(session.messages[2].content, "a2");
     }
 }

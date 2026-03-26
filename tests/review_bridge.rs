@@ -715,6 +715,64 @@ async fn readiness_reviewer_enforces_max_session_messages() {
 }
 
 #[tokio::test]
+async fn readiness_reviewer_preserves_system_messages_when_trimming_history() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let session_id = agentim
+        .create_session(
+            "default-agent".to_string(),
+            TELEGRAM_CHANNEL_ID.to_string(),
+            "2020".to_string(),
+        )
+        .unwrap();
+    let mut session = agentim.get_session(&session_id).unwrap();
+    session.add_message(agentim::session::MessageRole::System, "system prompt".to_string());
+    agentim.update_session(&session_id, session).unwrap();
+
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            max_session_messages: Some(3),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":20,"message":{"message_id":200,"chat":{"id":2020},"text":"first"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":21,"message":{"message_id":210,"chat":{"id":2020},"text":"second"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let trimmed = agentim.get_session(&session_id).unwrap();
+    assert_eq!(trimmed.messages.len(), 3);
+    assert_eq!(trimmed.messages[0].role, agentim::session::MessageRole::System);
+    assert_eq!(trimmed.messages[1].content, "second");
+    assert_eq!(trimmed.messages[2].content, "default:second");
+}
+
+#[tokio::test]
 async fn readiness_reviewer_persists_sessions_between_restarts() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
