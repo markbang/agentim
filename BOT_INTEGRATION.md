@@ -69,6 +69,8 @@ AGENTIM_DRY_RUN=1 ./start.sh
 ./start.sh
 ```
 
+其中 `AGENTIM_DRY_RUN=1` 会调用二进制的 `--dry-run` 路径，离线验证 webhook / 凭证配置而不做真实健康检查。
+
 如果需要一个统一的轻量保护层，可以设置共享密钥：
 
 ```bash

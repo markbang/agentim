@@ -39,7 +39,12 @@ if [ "$help_status" -eq 0 ]; then
 fi
 
 set +e
-AGENTIM_DRY_RUN=1 ./start.sh >/tmp/agentim-start.out 2>/tmp/agentim-start.err
+AGENTIM_DRY_RUN=1 \
+TELEGRAM_TOKEN=dummy-telegram-token \
+DISCORD_TOKEN=dummy-discord-token \
+FEISHU_TOKEN=app:secret \
+QQ_TOKEN=bot:token \
+./start.sh >/tmp/agentim-start.out 2>/tmp/agentim-start.err
 start_status=$?
 set -e
 if [ "$start_status" -eq 0 ]; then
@@ -224,6 +229,15 @@ cargo test --quiet --test review_bridge usability_reviewer_loads_runtime_config_
 config_test_status=$?
 set -e
 if [ "$config_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credentials \
+  >/tmp/agentim-dry-run-health-test.out 2>/tmp/agentim-dry-run-health-test.err
+dry_run_health_test_status=$?
+set -e
+if [ "$dry_run_health_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -435,4 +449,10 @@ if [ "$config_test_status" -ne 0 ]; then
   echo '--- runtime config review test tail ---'
   tail -20 /tmp/agentim-config-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-config-test.out 2>/dev/null || true
+fi
+
+if [ "$dry_run_health_test_status" -ne 0 ]; then
+  echo '--- dry-run health-skip review test tail ---'
+  tail -20 /tmp/agentim-dry-run-health-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-dry-run-health-test.out 2>/dev/null || true
 fi

@@ -117,3 +117,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer/unit coverage proving trimmed history summaries now preserve paired turn structure in a more compact form.
 - Added Feishu URL verification challenge handling on `/feishu`, so webhook onboarding can complete without routing the challenge payload through an agent.
 - Added reviewer coverage proving `type=url_verification` requests return the expected challenge response payload directly.
+- Fixed dry-run semantics so channel health checks are skipped in `--dry-run`, making offline startup validation work even with dummy multi-platform credentials.
+- Hardened `start.sh` so `AGENTIM_DRY_RUN=1` actually runs the current binary's `--dry-run` path and rebuilds the release binary when it is stale, instead of only validating shell argument assembly.

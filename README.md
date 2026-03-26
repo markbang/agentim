@@ -124,6 +124,8 @@ AGENTIM_DRY_RUN=1 ./start.sh
 cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
+现在 dry-run 会跳过真实 channel 健康检查，因此可以离线验证多平台启动参数与凭证格式。
+
 ### 3. 凭证参数
 
 ```text

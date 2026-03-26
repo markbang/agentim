@@ -63,6 +63,8 @@ AGENTIM_DRY_RUN=1 ./start.sh
 cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
+`--dry-run` / `AGENTIM_DRY_RUN=1` 会跳过真实 IM 健康检查，适合离线验证配置。
+
 ## 常用凭证
 
 ```bash

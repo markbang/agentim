@@ -224,9 +224,13 @@ async fn main() -> anyhow::Result<()> {
         let tg_bot = Arc::new(TelegramBotChannel::new(TELEGRAM_CHANNEL_ID.to_string(), token));
         agentim.register_channel(TELEGRAM_CHANNEL_ID.to_string(), tg_bot.clone())?;
 
-        match Channel::health_check(tg_bot.as_ref()).await {
-            Ok(_) => cli::print_success("Telegram Bot connected"),
-            Err(e) => cli::print_error(&format!("Telegram Bot connection failed: {}", e)),
+        if args.dry_run {
+            cli::print_info("Skipping Telegram health check in dry-run mode");
+        } else {
+            match Channel::health_check(tg_bot.as_ref()).await {
+                Ok(_) => cli::print_success("Telegram Bot connected"),
+                Err(e) => cli::print_error(&format!("Telegram Bot connection failed: {}", e)),
+            }
         }
     }
 
@@ -235,9 +239,13 @@ async fn main() -> anyhow::Result<()> {
         let discord_bot = Arc::new(DiscordBotChannel::new(DISCORD_CHANNEL_ID.to_string(), token));
         agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot.clone())?;
 
-        match Channel::health_check(discord_bot.as_ref()).await {
-            Ok(_) => cli::print_success("Discord Bot connected"),
-            Err(e) => cli::print_error(&format!("Discord Bot connection failed: {}", e)),
+        if args.dry_run {
+            cli::print_info("Skipping Discord health check in dry-run mode");
+        } else {
+            match Channel::health_check(discord_bot.as_ref()).await {
+                Ok(_) => cli::print_success("Discord Bot connected"),
+                Err(e) => cli::print_error(&format!("Discord Bot connection failed: {}", e)),
+            }
         }
     }
 
@@ -262,9 +270,13 @@ async fn main() -> anyhow::Result<()> {
         ));
         agentim.register_channel(FEISHU_CHANNEL_ID.to_string(), feishu_bot.clone())?;
 
-        match Channel::health_check(feishu_bot.as_ref()).await {
-            Ok(_) => cli::print_success("Feishu Bot connected"),
-            Err(e) => cli::print_error(&format!("Feishu Bot connection failed: {}", e)),
+        if args.dry_run {
+            cli::print_info("Skipping Feishu health check in dry-run mode");
+        } else {
+            match Channel::health_check(feishu_bot.as_ref()).await {
+                Ok(_) => cli::print_success("Feishu Bot connected"),
+                Err(e) => cli::print_error(&format!("Feishu Bot connection failed: {}", e)),
+            }
         }
     }
 
@@ -287,9 +299,13 @@ async fn main() -> anyhow::Result<()> {
         ));
         agentim.register_channel(QQ_CHANNEL_ID.to_string(), qq_bot.clone())?;
 
-        match Channel::health_check(qq_bot.as_ref()).await {
-            Ok(_) => cli::print_success("QQ Bot connected"),
-            Err(e) => cli::print_error(&format!("QQ Bot connection failed: {}", e)),
+        if args.dry_run {
+            cli::print_info("Skipping QQ health check in dry-run mode");
+        } else {
+            match Channel::health_check(qq_bot.as_ref()).await {
+                Ok(_) => cli::print_success("QQ Bot connected"),
+                Err(e) => cli::print_error(&format!("QQ Bot connection failed: {}", e)),
+            }
         }
     }
 

@@ -69,7 +69,7 @@ export TELEGRAM_TOKEN=your-token
 AGENTIM_DRY_RUN=1 ./start.sh
 ```
 
-这个模式适合先 review 启动参数，不真正拉起 server。
+这个模式适合先 review 启动参数，不真正拉起 server，并且会跳过真实 IM 健康检查。
 
 ## 支持的环境变量
 

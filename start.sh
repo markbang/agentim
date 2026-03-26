@@ -71,15 +71,24 @@ echo "Command:"
 printf '  %q' "$BINARY" "${args[@]}" "$@"
 printf '\n\n'
 
-if [[ "$DRY_RUN" == "1" ]]; then
-  echo "AGENTIM_DRY_RUN=1 -> validated startup configuration without executing the server."
-  exit 0
+needs_build=0
+if [[ ! -x "$BINARY" ]]; then
+  needs_build=1
+elif [[ "$AGENTIM_HOME/Cargo.toml" -nt "$BINARY" || "$AGENTIM_HOME/Cargo.lock" -nt "$BINARY" ]]; then
+  needs_build=1
+elif find "$AGENTIM_HOME/src" -type f -newer "$BINARY" -print -quit | grep -q .; then
+  needs_build=1
 fi
 
-if [[ ! -x "$BINARY" ]]; then
-  echo "🔨 Release binary not found. Building..."
+if [[ "$needs_build" == "1" ]]; then
+  echo "🔨 Release binary missing or stale. Building..."
   cargo build --release
   echo
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "AGENTIM_DRY_RUN=1 -> running binary --dry-run for offline validation."
+  exec "$BINARY" "${args[@]}" --dry-run "$@"
 fi
 
 exec "$BINARY" "${args[@]}" "$@"

@@ -1387,3 +1387,31 @@ fn usability_reviewer_loads_runtime_config_file() {
 
     let _ = std::fs::remove_file(config_path);
 }
+
+#[test]
+fn usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credentials() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args([
+            "--dry-run",
+            "--agent",
+            "claude",
+            "--telegram-token",
+            "dummy-telegram-token",
+            "--discord-token",
+            "dummy-discord-token",
+            "--feishu-token",
+            "app:secret",
+            "--qq-token",
+            "bot:token",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Skipping Telegram health check in dry-run mode"));
+    assert!(stdout.contains("Skipping Discord health check in dry-run mode"));
+    assert!(stdout.contains("Skipping Feishu health check in dry-run mode"));
+    assert!(stdout.contains("Skipping QQ health check in dry-run mode"));
+    assert!(stdout.contains("Dry run complete"));
+}
