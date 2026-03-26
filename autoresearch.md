@@ -11,6 +11,7 @@ Turn this repository into a genuinely usable IM bridge for multiple AI agents an
   - `review_score` — points for built-in review/eval coverage
   - `cargo_test_ok` — 1 if `cargo test --quiet` succeeds, else 0
   - `help_ok` — 1 if `cargo run -- --help` succeeds, else 0
+  - `startup_ok` — 1 if `AGENTIM_DRY_RUN=1 ./start.sh` succeeds, else 0
   - `route_count` — number of supported webhook routes detected
 
 ## How to Run
@@ -76,3 +77,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Rewired `src/bot_server.rs` to expose Telegram, Discord, Feishu, and QQ webhook routes instead of Telegram-only routing.
 - Added executable reviewer coverage in `tests/review_bridge.rs` to validate multi-platform webhook routing, reply-target behavior, and session reuse.
 - Extended startup wiring so Discord/Feishu/QQ channels can be initialized coherently, with explicit credential flags plus backward-compatible compound-token fallbacks for Feishu/QQ.
+- Replaced the broken legacy `start.sh` flow with an environment-driven startup wrapper plus `AGENTIM_DRY_RUN=1` validation path.
+- Rewrote the main user docs (`README.md`, `QUICK_START.md`, `SETUP.md`, `BOT_INTEGRATION.md`) so they describe the real single-command runtime, current webhook routes, and the built-in review/eval loop.

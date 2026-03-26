@@ -1,311 +1,107 @@
 # AgentIM Setup Guide
 
-## Quick Start (5 minutes)
+## 运行模型
 
-### Option 1: Interactive Setup (Recommended)
+当前 `agentim` 二进制会：
 
-```bash
-# Build the project
-cargo build --release
+1. 选择一个默认 agent（`--agent`）
+2. 注册你提供凭证的 IM channel
+3. 启动 webhook server
+4. 对收到的消息自动创建/复用 session，并把回复发回原平台
 
-# Start interactive setup
-./target/release/agentim interactive
-```
+如果你需要更复杂的“多 agent 动态分流”，建议在库层基于 `AgentIM` 扩展。
 
-This will guide you through:
-1. Registering AI agents (Claude, Codex, Pi)
-2. Registering communication channels (Telegram, Discord, Feishu, QQ)
-3. Creating sessions between agents and channels
-4. Testing message flow
-
-### Option 2: Configuration File
-
-1. Copy the example configuration:
-```bash
-cp agentim.json.example agentim.json
-```
-
-2. Edit `agentim.json` with your agents and channels:
-```json
-{
-  "agents": [
-    {
-      "id": "claude-main",
-      "agent_type": "claude",
-      "model": "claude-3-5-sonnet-20241022"
-    }
-  ],
-  "channels": [
-    {
-      "id": "telegram-main",
-      "channel_type": "telegram"
-    }
-  ],
-  "sessions": [
-    {
-      "agent_id": "claude-main",
-      "channel_id": "telegram-main",
-      "user_id": "user123"
-    }
-  ]
-}
-```
-
-3. Run the startup script:
-```bash
-./start.sh
-```
-
-## Agent Types
-
-### Claude
-- **Type**: `claude`
-- **Model**: Optional (default: `claude-3-5-sonnet-20241022`)
-- **Example**:
-  ```json
-  {
-    "id": "claude-main",
-    "agent_type": "claude",
-    "model": "claude-3-5-sonnet-20241022"
-  }
-  ```
-
-### Codex
-- **Type**: `codex`
-- **Model**: Optional (default: `code-davinci-002`)
-- **Example**:
-  ```json
-  {
-    "id": "codex-main",
-    "agent_type": "codex",
-    "model": "code-davinci-002"
-  }
-  ```
-
-### Pi
-- **Type**: `pi`
-- **Model**: Not applicable
-- **Example**:
-  ```json
-  {
-    "id": "pi-main",
-    "agent_type": "pi"
-  }
-  ```
-
-## Channel Types
+## 方式 1：直接命令行启动
 
 ### Telegram
-- **Type**: `telegram`
-- **Example**:
-  ```json
-  {
-    "id": "telegram-main",
-    "channel_type": "telegram"
-  }
-  ```
+
+```bash
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 0.0.0.0:8080
+```
 
 ### Discord
-- **Type**: `discord`
-- **Example**:
-  ```json
-  {
-    "id": "discord-main",
-    "channel_type": "discord"
-  }
-  ```
 
-### Feishu (Lark)
-- **Type**: `feishu`
-- **Example**:
-  ```json
-  {
-    "id": "feishu-main",
-    "channel_type": "feishu"
-  }
-  ```
+```bash
+cargo run -- \
+  --agent codex \
+  --discord-token "$DISCORD_TOKEN" \
+  --addr 0.0.0.0:8080
+```
+
+### Feishu
+
+```bash
+cargo run -- \
+  --agent pi \
+  --feishu-app-id "$FEISHU_APP_ID" \
+  --feishu-app-secret "$FEISHU_APP_SECRET"
+```
 
 ### QQ
-- **Type**: `qq`
-- **Example**:
-  ```json
-  {
-    "id": "qq-main",
-    "channel_type": "qq"
-  }
-  ```
 
-## CLI Commands
-
-### Agent Management
 ```bash
-# List all agents
-./target/release/agentim agent list
-
-# Register a new agent
-./target/release/agentim agent register --id claude-1 --agent-type claude
-
-# Health check
-./target/release/agentim agent health --id claude-1
+cargo run -- \
+  --agent claude \
+  --qq-bot-id "$QQ_BOT_ID" \
+  --qq-bot-token "$QQ_BOT_TOKEN"
 ```
 
-### Channel Management
+## 方式 2：环境变量 + `start.sh`
+
 ```bash
-# List all channels
-./target/release/agentim channel list
-
-# Register a new channel
-./target/release/agentim channel register --id tg-1 --channel-type telegram
-
-# Health check
-./target/release/agentim channel health --id tg-1
-```
-
-### Session Management
-```bash
-# List all sessions
-./target/release/agentim session list
-
-# Create a new session
-./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-1 \
-  --user-id user123
-
-# Get session details
-./target/release/agentim session get --id <session-id>
-
-# Send a message
-./target/release/agentim session send \
-  --session-id <session-id> \
-  --message "Hello, agent!"
-
-# Delete a session
-./target/release/agentim session delete --id <session-id>
-```
-
-### System Status
-```bash
-# View system status
-./target/release/agentim status
-
-# Interactive mode
-./target/release/agentim interactive
-```
-
-## Message Flow
-
-1. **User sends message** → Channel receives it
-2. **Message routed to Agent** → Agent processes the message
-3. **Agent generates response** → Response sent back to Channel
-4. **User receives response** → Channel delivers it
-
-Example:
-```bash
-# Create a session
-SESSION_ID=$(./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-1 \
-  --user-id user123 | grep -oP 'Session created: \K\S+')
-
-# Send a message
-./target/release/agentim session send \
-  --session-id $SESSION_ID \
-  --message "What is 2+2?"
-```
-
-## Configuration File Format
-
-The `agentim.json` file contains three main sections:
-
-### Agents Section
-```json
-"agents": [
-  {
-    "id": "unique-agent-id",
-    "agent_type": "claude|codex|pi",
-    "model": "optional-model-name"
-  }
-]
-```
-
-### Channels Section
-```json
-"channels": [
-  {
-    "id": "unique-channel-id",
-    "channel_type": "telegram|discord|feishu|qq"
-  }
-]
-```
-
-### Sessions Section
-```json
-"sessions": [
-  {
-    "agent_id": "must-match-agent-id",
-    "channel_id": "must-match-channel-id",
-    "user_id": "unique-user-identifier"
-  }
-]
-```
-
-## Production Deployment
-
-### 1. Build Release Binary
-```bash
-cargo build --release
-```
-
-The binary will be at `./target/release/agentim`
-
-### 2. Prepare Configuration
-```bash
-cp agentim.json.example agentim.json
-# Edit agentim.json with your setup
-```
-
-### 3. Run Startup Script
-```bash
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```
 
-### 4. Verify Status
+### Dry-run
+
 ```bash
-./target/release/agentim status
+AGENTIM_DRY_RUN=1 ./start.sh
 ```
 
-## Troubleshooting
+这个模式适合先 review 启动参数，不真正拉起 server。
 
-### Build Issues
+## 支持的环境变量
+
+- `AGENTIM_AGENT`
+- `AGENTIM_ADDR`
+- `TELEGRAM_TOKEN`
+- `DISCORD_TOKEN`
+- `FEISHU_APP_ID`
+- `FEISHU_APP_SECRET`
+- `QQ_BOT_ID`
+- `QQ_BOT_TOKEN`
+
+兼容旧变量：
+- `FEISHU_TOKEN=app_id:app_secret`
+- `QQ_TOKEN=bot_id:bot_token`
+
+## Webhook 路由
+
+- `/telegram`
+- `/discord`
+- `/feishu`
+- `/qq`
+
+## Setup 后建议立刻执行的检查
+
 ```bash
-# Clean and rebuild
-cargo clean
-cargo build --release
+cargo test --test review_bridge
+./autoresearch.sh
 ```
 
-### Configuration Issues
-- Ensure `agentim.json` is valid JSON
-- Check that agent IDs in sessions match registered agents
-- Check that channel IDs in sessions match registered channels
+这两个检查分别负责：
+- **review**：功能回归
+- **eval**：结构化完成度评估
 
-### Runtime Issues
-```bash
-# Check system status
-./target/release/agentim status
+## 生产建议
 
-# Check specific agent
-./target/release/agentim agent health --id <agent-id>
-
-# Check specific channel
-./target/release/agentim channel health --id <channel-id>
-```
-
-## Next Steps
-
-1. **Integrate Real APIs**: Replace mock implementations with actual API calls
-2. **Add Persistence**: Store sessions and messages in a database
-3. **Web Interface**: Add a REST API for remote management
-4. **Monitoring**: Add metrics and logging for production use
-
-See `ARCHITECTURE.md` for detailed design information.
+- 使用 HTTPS 暴露 webhook
+- 为各平台增加签名校验
+- 把 session 持久化接到真实存储
+- 为真实 agent API 调用增加超时和重试

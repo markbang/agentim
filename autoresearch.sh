@@ -7,6 +7,7 @@ routing_score=0
 review_score=0
 cargo_test_ok=0
 help_ok=0
+startup_ok=0
 route_count=0
 handler_count=0
 autocreate_ok=0
@@ -29,12 +30,21 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --discord-token --feishu-token --qq-token --agent --addr; do
+  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
   done
   dynamic_score=$((dynamic_score + required_flags))
+fi
+
+set +e
+AGENTIM_DRY_RUN=1 ./start.sh >/tmp/agentim-start.out 2>/tmp/agentim-start.err
+start_status=$?
+set -e
+if [ "$start_status" -eq 0 ]; then
+  startup_ok=1
+  dynamic_score=$((dynamic_score + 8))
 fi
 
 route_count=$(python3 - <<'PY'
@@ -104,6 +114,7 @@ printf 'METRIC routing_score=%s\n' "$routing_score"
 printf 'METRIC review_score=%s\n' "$review_score"
 printf 'METRIC cargo_test_ok=%s\n' "$cargo_test_ok"
 printf 'METRIC help_ok=%s\n' "$help_ok"
+printf 'METRIC startup_ok=%s\n' "$startup_ok"
 printf 'METRIC route_count=%s\n' "$route_count"
 printf 'METRIC handler_count=%s\n' "$handler_count"
 printf 'METRIC autocreate_ok=%s\n' "$autocreate_ok"
@@ -118,4 +129,10 @@ if [ "$help_ok" -ne 1 ]; then
   echo '--- cargo run -- --help tail ---'
   tail -20 /tmp/agentim-help.err 2>/dev/null || true
   tail -20 /tmp/agentim-help.out 2>/dev/null || true
+fi
+
+if [ "$startup_ok" -ne 1 ]; then
+  echo '--- start.sh dry-run tail ---'
+  tail -20 /tmp/agentim-start.err 2>/dev/null || true
+  tail -20 /tmp/agentim-start.out 2>/dev/null || true
 fi

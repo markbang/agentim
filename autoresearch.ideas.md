@@ -1,0 +1,3 @@
+- Add config-driven multi-agent routing for the binary (e.g. route by webhook path, workspace, or user) instead of a single default agent.
+- Add request-signature verification and replay protection for Telegram/Discord/Feishu/QQ webhooks before calling the agent.
+- Plug `persistence.rs` into the runtime so sessions survive restarts and reviewer tests can cover resume behavior.

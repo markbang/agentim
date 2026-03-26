@@ -1,91 +1,65 @@
-#!/bin/bash
-
-# AgentIM Startup Script
-# Simple installation and configuration
-
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 AGENTIM_HOME="${AGENTIM_HOME:-.}"
-CONFIG_FILE="${AGENTIM_HOME}/agentim.json"
 BINARY="${AGENTIM_HOME}/target/release/agentim"
+AGENT="${AGENTIM_AGENT:-claude}"
+ADDR="${AGENTIM_ADDR:-127.0.0.1:8080}"
+DRY_RUN="${AGENTIM_DRY_RUN:-0}"
 
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║          AgentIM - Multi-Channel AI Agent Manager          ║"
-echo "║                    Startup Script                          ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
+args=(--agent "$AGENT" --addr "$ADDR")
 
-# Check if binary exists
-if [ ! -f "$BINARY" ]; then
-    echo "🔨 Building AgentIM..."
-    cargo build --release
-    echo "✅ Build complete"
-    echo ""
+if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
+  args+=(--telegram-token "$TELEGRAM_TOKEN")
 fi
 
-# Check if config exists
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "📝 No configuration found. Starting interactive setup..."
-    echo ""
-    "$BINARY" interactive
-else
-    echo "📋 Loading configuration from $CONFIG_FILE"
-    echo ""
-
-    # Load agents from config
-    echo "📦 Registering agents..."
-    agents=$(jq -r '.agents[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$agents" ]; then
-        echo "$agents" | while read -r agent; do
-            id=$(echo "$agent" | jq -r '.id')
-            type=$(echo "$agent" | jq -r '.agent_type')
-            model=$(echo "$agent" | jq -r '.model // empty')
-
-            if [ -n "$model" ]; then
-                "$BINARY" agent register --id "$id" --agent-type "$type" --model "$model"
-            else
-                "$BINARY" agent register --id "$id" --agent-type "$type"
-            fi
-        done
-    fi
-
-    # Load channels from config
-    echo "📦 Registering channels..."
-    channels=$(jq -r '.channels[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$channels" ]; then
-        echo "$channels" | while read -r channel; do
-            id=$(echo "$channel" | jq -r '.id')
-            type=$(echo "$channel" | jq -r '.channel_type')
-            "$BINARY" channel register --id "$id" --channel-type "$type"
-        done
-    fi
-
-    # Load sessions from config
-    echo "📦 Creating sessions..."
-    sessions=$(jq -r '.sessions[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$sessions" ]; then
-        echo "$sessions" | while read -r session; do
-            agent=$(echo "$session" | jq -r '.agent_id')
-            channel=$(echo "$session" | jq -r '.channel_id')
-            user=$(echo "$session" | jq -r '.user_id')
-            "$BINARY" session create --agent-id "$agent" --channel-id "$channel" --user-id "$user"
-        done
-    fi
+if [[ -n "${DISCORD_TOKEN:-}" ]]; then
+  args+=(--discord-token "$DISCORD_TOKEN")
 fi
 
-echo ""
-echo "📊 System Status:"
-"$BINARY" status
+if [[ -n "${FEISHU_APP_ID:-}" || -n "${FEISHU_APP_SECRET:-}" ]]; then
+  : "${FEISHU_APP_ID:?FEISHU_APP_ID must be set with FEISHU_APP_SECRET}"
+  : "${FEISHU_APP_SECRET:?FEISHU_APP_SECRET must be set with FEISHU_APP_ID}"
+  args+=(--feishu-app-id "$FEISHU_APP_ID" --feishu-app-secret "$FEISHU_APP_SECRET")
+elif [[ -n "${FEISHU_TOKEN:-}" ]]; then
+  args+=(--feishu-token "$FEISHU_TOKEN")
+fi
 
-echo ""
+if [[ -n "${QQ_BOT_ID:-}" || -n "${QQ_BOT_TOKEN:-}" ]]; then
+  : "${QQ_BOT_ID:?QQ_BOT_ID must be set with QQ_BOT_TOKEN}"
+  : "${QQ_BOT_TOKEN:?QQ_BOT_TOKEN must be set with QQ_BOT_ID}"
+  args+=(--qq-bot-id "$QQ_BOT_ID" --qq-bot-token "$QQ_BOT_TOKEN")
+elif [[ -n "${QQ_TOKEN:-}" ]]; then
+  args+=(--qq-token "$QQ_TOKEN")
+fi
+
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                   Setup Complete! 🎉                       ║"
+echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
+echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
-echo "Next steps:"
-echo "  • Interactive mode:  $BINARY interactive"
-echo "  • View agents:       $BINARY agent list"
-echo "  • View channels:     $BINARY channel list"
-echo "  • View sessions:     $BINARY session list"
-echo "  • Send message:      $BINARY session send --session-id <id> --message '<msg>'"
-echo ""
+echo
+
+echo "Agent:   $AGENT"
+echo "Address: $ADDR"
+[[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
+[[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
+[[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
+[[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
+echo
+
+echo "Command:"
+printf '  %q' "$BINARY" "${args[@]}" "$@"
+printf '\n\n'
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "AGENTIM_DRY_RUN=1 -> validated startup configuration without executing the server."
+  exit 0
+fi
+
+if [[ ! -x "$BINARY" ]]; then
+  echo "🔨 Release binary not found. Building..."
+  cargo build --release
+  echo
+fi
+
+exec "$BINARY" "${args[@]}" "$@"

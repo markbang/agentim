@@ -1,165 +1,62 @@
-# AgentIM Quick Reference
+# AgentIM Quick Start
 
-## Installation & Setup
+## 30 秒启动
 
-### Build
+### 方式 1：直接运行
+
 ```bash
-cargo build --release
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
 ```
 
-### Quick Start (Interactive)
-```bash
-./target/release/agentim interactive
-```
+Server 启动后会监听：
+- `POST /telegram`
+- `POST /discord`
+- `POST /feishu`
+- `POST /qq`
 
-### Production Setup
+### 方式 2：用 `start.sh`
+
 ```bash
-cp agentim.json.example agentim.json
-# Edit agentim.json
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```
 
-## CLI Commands
-
-### Agents
-```bash
-agentim agent list                                    # List all agents
-agentim agent register --id <id> --agent-type <type> # Register agent
-agentim agent health --id <id>                        # Health check
-```
-
-Agent types: `claude`, `codex`, `pi`
-
-### Channels
-```bash
-agentim channel list                                      # List all channels
-agentim channel register --id <id> --channel-type <type> # Register channel
-agentim channel health --id <id>                         # Health check
-```
-
-Channel types: `telegram`, `discord`, `feishu`, `qq`
-
-### Sessions
-```bash
-agentim session list                                                    # List sessions
-agentim session create --agent-id <a> --channel-id <c> --user-id <u>  # Create session
-agentim session get --id <id>                                          # Get details
-agentim session send --session-id <id> --message "<msg>"              # Send message
-agentim session delete --id <id>                                       # Delete session
-```
-
-### System
-```bash
-agentim status      # View system status
-agentim interactive # Interactive mode
-```
-
-## Configuration File (agentim.json)
-
-```json
-{
-  "agents": [
-    {
-      "id": "claude-main",
-      "agent_type": "claude",
-      "model": "claude-3-5-sonnet-20241022"
-    }
-  ],
-  "channels": [
-    {
-      "id": "telegram-main",
-      "channel_type": "telegram"
-    }
-  ],
-  "sessions": [
-    {
-      "agent_id": "claude-main",
-      "channel_id": "telegram-main",
-      "user_id": "user123"
-    }
-  ]
-}
-```
-
-## Message Flow
-
-```
-User Message
-    ↓
-./agentim session send --session-id <id> --message "..."
-    ↓
-Agent processes message with context
-    ↓
-Agent generates response
-    ↓
-Response sent to channel
-    ↓
-User receives response
-```
-
-## Example Workflow
+先 review 一下启动参数：
 
 ```bash
-# 1. Build
-cargo build --release
-
-# 2. Register agent
-./target/release/agentim agent register --id claude-1 --agent-type claude
-
-# 3. Register channel
-./target/release/agentim channel register --id tg-1 --channel-type telegram
-
-# 4. Create session
-SESSION=$(./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-1 \
-  --user-id user123 | grep -oP 'Session created: \K\S+')
-
-# 5. Send message
-./target/release/agentim session send \
-  --session-id $SESSION \
-  --message "What is 2+2?"
-
-# 6. Check status
-./target/release/agentim status
+AGENTIM_DRY_RUN=1 ./start.sh
 ```
 
-## Documentation
+## 常用凭证
 
-- `README.md` - Project overview
-- `SETUP.md` - Detailed setup guide
-- `ARCHITECTURE.md` - Architecture details
-- `CLI_GUIDE.md` - CLI reference
-- `IMPLEMENTATION_SUMMARY.md` - What was implemented
-
-## Key Features
-
-✅ Multi-agent support (Claude, Codex, Pi)
-✅ Multi-channel support (Telegram, Discord, Feishu, QQ)
-✅ Session-based message history
-✅ Interactive setup mode
-✅ Configuration file support
-✅ Health checks
-✅ Concurrent session handling
-✅ Production-ready
-
-## Troubleshooting
-
-### Build fails
 ```bash
-cargo clean
-cargo build --release
+export TELEGRAM_TOKEN=...
+export DISCORD_TOKEN=...
+export FEISHU_APP_ID=...
+export FEISHU_APP_SECRET=...
+export QQ_BOT_ID=...
+export QQ_BOT_TOKEN=...
 ```
 
-### Agent/Channel not found
-- Ensure you registered the agent/channel first
-- Check the ID matches exactly
+兼容旧格式：
 
-### Session creation fails
-- Verify agent and channel are registered
-- Check IDs are correct
+```bash
+export FEISHU_TOKEN="app_id:app_secret"
+export QQ_TOKEN="bot_id:bot_token"
+```
 
-### Message not sent
-- Verify session exists
-- Check agent and channel are healthy
-- View session details: `agentim session get --id <id>`
+## 快速验证
+
+```bash
+cargo test --test review_bridge
+./autoresearch.sh
+```
+
+这两个命令分别做：
+- **review**：验证核心 webhook/session/reply-target 行为
+- **eval**：输出结构化 acceptance metrics
