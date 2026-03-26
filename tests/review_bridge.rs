@@ -773,6 +773,54 @@ async fn readiness_reviewer_preserves_system_messages_when_trimming_history() {
 }
 
 #[tokio::test]
+async fn readiness_reviewer_exposes_history_summary_after_trimming() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            max_session_messages: Some(2),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":22,"message":{"message_id":220,"chat":{"id":3030},"text":"first summary"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":23,"message":{"message_id":230,"chat":{"id":3030},"text":"second summary"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let session = agentim.list_sessions().into_iter().next().unwrap();
+    assert!(session.metadata.contains_key("history_summary"));
+    let context = session.get_context(3);
+    assert_eq!(context[0].role, agentim::session::MessageRole::System);
+    assert!(context[0].content.starts_with("Earlier context summary:"));
+    assert!(context[0].content.contains("first summary"));
+}
+
+#[tokio::test]
 async fn readiness_reviewer_persists_sessions_between_restarts() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));

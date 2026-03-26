@@ -67,15 +67,40 @@ impl Session {
     }
 
     pub fn get_context(&self, max_messages: usize) -> Vec<Message> {
-        self.messages
+        if max_messages == 0 {
+            return Vec::new();
+        }
+
+        let history_summary = self.metadata.get("history_summary").cloned();
+        let recent_budget = if history_summary.is_some() {
+            max_messages.saturating_sub(1)
+        } else {
+            max_messages
+        };
+
+        let recent_messages = self
+            .messages
             .iter()
             .rev()
-            .take(max_messages)
+            .take(recent_budget)
             .cloned()
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
-            .collect()
+            .collect::<Vec<_>>();
+
+        if let Some(summary) = history_summary {
+            let mut context = vec![Message {
+                id: "history-summary".to_string(),
+                role: MessageRole::System,
+                content: format!("Earlier context summary: {}", summary),
+                timestamp: self.updated_at,
+            }];
+            context.extend(recent_messages);
+            context
+        } else {
+            recent_messages
+        }
     }
 
     pub fn clear_history(&mut self) {
@@ -85,6 +110,11 @@ impl Session {
 
     pub fn trim_history(&mut self, max_messages: usize) {
         if max_messages == 0 {
+            if !self.messages.is_empty() {
+                self.update_history_summary(
+                    &self.messages.iter().cloned().collect::<Vec<_>>(),
+                );
+            }
             self.messages.clear();
             self.updated_at = Utc::now();
             return;
@@ -122,6 +152,14 @@ impl Session {
             ids
         };
 
+        let removed_messages = self
+            .messages
+            .iter()
+            .filter(|message| !keep_ids.contains(&message.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        self.update_history_summary(&removed_messages);
+
         self.messages = self
             .messages
             .iter()
@@ -129,6 +167,49 @@ impl Session {
             .cloned()
             .collect();
         self.updated_at = Utc::now();
+    }
+
+    fn update_history_summary(&mut self, removed_messages: &[Message]) {
+        let new_fragments = removed_messages
+            .iter()
+            .filter(|message| message.role != MessageRole::System)
+            .map(|message| {
+                format!(
+                    "[{}] {}",
+                    message.role,
+                    message.content.replace('\n', " ")
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if new_fragments.is_empty() {
+            return;
+        }
+
+        let mut summary = self
+            .metadata
+            .get("history_summary")
+            .cloned()
+            .unwrap_or_default();
+        if !summary.is_empty() {
+            summary.push_str(" | ");
+        }
+        summary.push_str(&new_fragments.join(" | "));
+
+        let max_chars = 600;
+        if summary.chars().count() > max_chars {
+            let tail = summary
+                .chars()
+                .rev()
+                .take(max_chars - 3)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<String>();
+            summary = format!("...{}", tail);
+        }
+
+        self.metadata.insert("history_summary".to_string(), summary);
     }
 }
 
@@ -177,5 +258,27 @@ mod tests {
         assert_eq!(session.messages[0].role, MessageRole::System);
         assert_eq!(session.messages[1].content, "u2");
         assert_eq!(session.messages[2].content, "a2");
+    }
+
+    #[test]
+    fn test_trim_history_creates_summary_for_removed_messages() {
+        let mut session = Session::new(
+            "agent1".to_string(),
+            "channel1".to_string(),
+            "user1".to_string(),
+        );
+        session.add_message(MessageRole::User, "u1".to_string());
+        session.add_message(MessageRole::Assistant, "a1".to_string());
+        session.add_message(MessageRole::User, "u2".to_string());
+        session.add_message(MessageRole::Assistant, "a2".to_string());
+
+        session.trim_history(2);
+        let context = session.get_context(3);
+
+        assert_eq!(context[0].role, MessageRole::System);
+        assert!(context[0].content.starts_with("Earlier context summary:"));
+        assert!(context[0].content.contains("u1"));
+        assert_eq!(context[1].content, "u2");
+        assert_eq!(context[2].content, "a2");
     }
 }

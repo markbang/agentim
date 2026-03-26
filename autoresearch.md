@@ -107,3 +107,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Updated examples/docs and added reviewer coverage proving higher-priority exact rules beat broader prefix rules while non-overlapping traffic still follows the broader fallback.
 - Improved history trimming semantics so preserved `System` messages survive trimming when possible, instead of always dropping the oldest message blindly.
 - Added reviewer/unit coverage proving bounded-history mode still trims normal chat sessions while protecting an injected system prompt from being discarded too early.
+- Added deterministic `history_summary` metadata generation for trimmed-away non-system turns, and exposed that summary back to the agent as a synthetic leading `System` context message.
+- Added reviewer/unit coverage proving bounded-history sessions now keep a compact summary of earlier turns instead of losing all trimmed context outright.
