@@ -81,3 +81,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Rewrote the main user docs (`README.md`, `QUICK_START.md`, `SETUP.md`, `BOT_INTEGRATION.md`) so they describe the real single-command runtime, current webhook routes, and the built-in review/eval loop.
 - Added per-platform agent routing for the binary via `BotServerConfig` and new CLI/startup overrides (`--telegram-agent`, `--discord-agent`, `--feishu-agent`, `--qq-agent`).
 - Added executable reviewer coverage proving that different webhook routes can be mapped to different registered agents and return different responses.
+- Wired optional session persistence into the runtime via `--state-file` / `AGENTIM_STATE_FILE`, restoring sessions on startup and saving them after successful webhook handling.
+- Added reviewer coverage for persistence so session history can survive a restart path instead of being purely in-memory.

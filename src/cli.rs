@@ -57,6 +57,10 @@ pub struct Args {
     #[arg(long)]
     pub qq_agent: Option<String>,
 
+    /// Persist sessions to this JSON file and reload them on startup
+    #[arg(long)]
+    pub state_file: Option<String>,
+
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long, default_value = "127.0.0.1:8080")]
     pub addr: String,

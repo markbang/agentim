@@ -33,6 +33,7 @@ Server 启动后会监听：
 ```bash
 export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
+export AGENTIM_STATE_FILE=.agentim/sessions.json
 export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```

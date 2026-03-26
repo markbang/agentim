@@ -165,6 +165,12 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let state_file = args.state_file.clone();
+    if let Some(path) = state_file.as_deref() {
+        let restored = agentim.load_sessions_from_path(path)?;
+        cli::print_info(&format!("Restored {} sessions from {}", restored, path));
+    }
+
     cli::print_info(&format!("Starting Bot server on {}", args.addr));
     cli::print_info("Waiting for incoming messages...");
 
@@ -173,6 +179,7 @@ async fn main() -> anyhow::Result<()> {
         discord_agent_id,
         feishu_agent_id,
         qq_agent_id,
+        state_file,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &args.addr).await?;

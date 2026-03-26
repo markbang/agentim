@@ -93,6 +93,39 @@ impl AgentIM {
             .collect()
     }
 
+    pub fn save_sessions_to_path(&self, path: &str) -> Result<()> {
+        let sessions = self.list_sessions();
+        let content = serde_json::to_string_pretty(&sessions)?;
+
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    pub fn load_sessions_from_path(&self, path: &str) -> Result<usize> {
+        let path = std::path::Path::new(path);
+        if !path.exists() {
+            return Ok(0);
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        let sessions: Vec<Session> = serde_json::from_str(&content)?;
+        let count = sessions.len();
+
+        for session in sessions {
+            self.get_agent(&session.agent_id)?;
+            self.get_channel(&session.channel_id)?;
+            self.sessions.insert(session.id.clone(), session);
+        }
+
+        Ok(count)
+    }
+
     pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {
         let mut session = self.get_session(session_id)?;
         let agent = self.get_agent(&session.agent_id)?;

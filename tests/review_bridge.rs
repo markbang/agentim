@@ -12,6 +12,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
 struct ReviewAgent {
@@ -101,6 +102,17 @@ fn register_review_channel(
             }),
         )
         .unwrap();
+}
+
+fn temp_state_file() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir()
+        .join(format!("agentim-review-{}.json", nanos))
+        .display()
+        .to_string()
 }
 
 fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> Arc<AgentIM> {
@@ -324,4 +336,48 @@ async fn functionality_reviewer_routes_channels_to_configured_agents() {
         "discord-room".to_string(),
         "discord:channel specific discord".to_string(),
     )));
+}
+
+#[tokio::test]
+async fn readiness_reviewer_persists_sessions_between_restarts() {
+    let state_file = temp_state_file();
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            state_file: Some(state_file.clone()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":9,"message":{"message_id":90,"chat":{"id":999},"text":"persist me"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let restored_manager = Arc::new(AgentIM::new());
+    register_review_agent(&restored_manager, "default-agent", "default");
+    register_review_channel(
+        &restored_manager,
+        Arc::new(Mutex::new(Vec::new())),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let restored = restored_manager.load_sessions_from_path(&state_file).unwrap();
+    assert_eq!(restored, 1);
+    assert_eq!(restored_manager.list_sessions().len(), 1);
+    assert_eq!(restored_manager.list_sessions()[0].messages.len(), 2);
+
+    let _ = std::fs::remove_file(state_file);
 }

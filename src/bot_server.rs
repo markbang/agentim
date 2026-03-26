@@ -17,6 +17,7 @@ pub struct BotServerConfig {
     pub discord_agent_id: String,
     pub feishu_agent_id: String,
     pub qq_agent_id: String,
+    pub state_file: Option<String>,
 }
 
 impl Default for BotServerConfig {
@@ -26,6 +27,7 @@ impl Default for BotServerConfig {
             discord_agent_id: "default-agent".to_string(),
             feishu_agent_id: "default-agent".to_string(),
             qq_agent_id: "default-agent".to_string(),
+            state_file: None,
         }
     }
 }
@@ -34,6 +36,17 @@ impl Default for BotServerConfig {
 struct AppState {
     agentim: Arc<AgentIM>,
     config: BotServerConfig,
+}
+
+fn persist_if_configured(state: &AppState) -> Result<(), String> {
+    if let Some(path) = state.config.state_file.as_deref() {
+        state
+            .agentim
+            .save_sessions_to_path(path)
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(())
 }
 
 async fn telegram_webhook(
@@ -47,7 +60,10 @@ async fn telegram_webhook(
     )
     .await
     {
-        Ok(_) => (StatusCode::OK, "ok".to_string()),
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
         Err(err) => {
             tracing::error!("telegram webhook failed: {}", err);
             (StatusCode::BAD_REQUEST, err.to_string())
@@ -66,7 +82,10 @@ async fn discord_webhook(
     )
     .await
     {
-        Ok(_) => (StatusCode::OK, "ok".to_string()),
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
         Err(err) => {
             tracing::error!("discord webhook failed: {}", err);
             (StatusCode::BAD_REQUEST, err.to_string())
@@ -85,7 +104,10 @@ async fn feishu_webhook(
     )
     .await
     {
-        Ok(_) => (StatusCode::OK, "ok".to_string()),
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
         Err(err) => {
             tracing::error!("feishu webhook failed: {}", err);
             (StatusCode::BAD_REQUEST, err.to_string())
@@ -104,7 +126,10 @@ async fn qq_webhook(
     )
     .await
     {
-        Ok(_) => (StatusCode::OK, "ok".to_string()),
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
         Err(err) => {
             tracing::error!("qq webhook failed: {}", err);
             (StatusCode::BAD_REQUEST, err.to_string())

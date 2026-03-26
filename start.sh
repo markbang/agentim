@@ -13,6 +13,7 @@ args=(--agent "$AGENT" --addr "$ADDR")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
 [[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
+[[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 
 if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
   args+=(--telegram-token "$TELEGRAM_TOKEN")

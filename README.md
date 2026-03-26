@@ -27,7 +27,7 @@
 - 多平台 webhook 接入
 - 默认 agent + 按平台 agent override
 - 统一 `Agent` / `Channel` trait
-- 自动 session 创建与复用
+- 自动 session 创建、复用与可选持久化（`--state-file`）
 - 会话级 `reply_target` 管理
   - Telegram / Feishu 用用户标识回发
   - Discord / QQ 用 channel 标识回发
@@ -69,6 +69,12 @@ export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
 ./start.sh
+```
+
+如果希望 session 在重启后恢复，可以再加：
+
+```bash
+export AGENTIM_STATE_FILE=.agentim/sessions.json
 ```
 
 先做 dry-run 看启动配置是否正确：
