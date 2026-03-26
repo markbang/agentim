@@ -903,6 +903,62 @@ async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
 }
 
 #[tokio::test]
+async fn persistence_reviewer_recovers_from_latest_valid_backup() {
+    let state_file = temp_state_file();
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            state_file: Some(state_file.clone()),
+            state_backup_count: 2,
+            ..BotServerConfig::default()
+        },
+    );
+
+    for (update_id, text) in [(30, "restore one"), (31, "restore two")] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/telegram")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        "{{\"update_id\":{},\"message\":{{\"message_id\":{},\"chat\":{{\"id\":5050}},\"text\":\"{}\"}}}}",
+                        update_id,
+                        update_id * 10,
+                        text
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    std::fs::write(&state_file, "not valid json").unwrap();
+
+    let restored_manager = Arc::new(AgentIM::new());
+    register_review_agent(&restored_manager, "default-agent", "default");
+    register_review_channel(
+        &restored_manager,
+        Arc::new(Mutex::new(Vec::new())),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let (restored, loaded_from) = restored_manager
+        .load_sessions_from_path_with_fallback(&state_file, 2)
+        .unwrap();
+    assert_eq!(restored, 1);
+    assert!(loaded_from.ends_with(".bak.1"));
+    assert_eq!(restored_manager.list_sessions().len(), 1);
+
+    let _ = std::fs::remove_file(&state_file);
+    let _ = std::fs::remove_file(format!("{}.bak.1", state_file));
+    let _ = std::fs::remove_file(format!("{}.bak.2", state_file));
+}
+
+#[tokio::test]
 async fn persistence_reviewer_rotates_snapshot_backups() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));

@@ -97,6 +97,14 @@ impl AgentIM {
         self.save_sessions_to_path_with_rotation(path, 0)
     }
 
+    fn backup_path(path: &std::path::Path, index: usize) -> std::path::PathBuf {
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "sessions".to_string());
+        path.with_file_name(format!("{}.bak.{}", file_name, index))
+    }
+
     pub fn save_sessions_to_path_with_rotation(&self, path: &str, backup_count: usize) -> Result<()> {
         let sessions = self.list_sessions();
         let content = serde_json::to_string_pretty(&sessions)?;
@@ -109,21 +117,13 @@ impl AgentIM {
         }
 
         if backup_count > 0 && path.exists() {
-            let backup_path = |index: usize| {
-                let file_name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "sessions".to_string());
-                path.with_file_name(format!("{}.bak.{}", file_name, index))
-            };
-
             for index in (1..=backup_count).rev() {
                 let from = if index == 1 {
                     path.to_path_buf()
                 } else {
-                    backup_path(index - 1)
+                    Self::backup_path(path, index - 1)
                 };
-                let to = backup_path(index);
+                let to = Self::backup_path(path, index);
 
                 if from.exists() {
                     if to.exists() {
@@ -140,23 +140,60 @@ impl AgentIM {
         Ok(())
     }
 
+    fn load_sessions_from_specific_path(&self, path: &std::path::Path) -> Result<usize> {
+        let content = std::fs::read_to_string(path)?;
+        let sessions: Vec<Session> = serde_json::from_str(&content)?;
+        let count = sessions.len();
+
+        for session in &sessions {
+            self.get_agent(&session.agent_id)?;
+            self.get_channel(&session.channel_id)?;
+        }
+
+        for session in sessions {
+            self.sessions.insert(session.id.clone(), session);
+        }
+
+        Ok(count)
+    }
+
     pub fn load_sessions_from_path(&self, path: &str) -> Result<usize> {
         let path = std::path::Path::new(path);
         if !path.exists() {
             return Ok(0);
         }
 
-        let content = std::fs::read_to_string(path)?;
-        let sessions: Vec<Session> = serde_json::from_str(&content)?;
-        let count = sessions.len();
+        self.load_sessions_from_specific_path(path)
+    }
 
-        for session in sessions {
-            self.get_agent(&session.agent_id)?;
-            self.get_channel(&session.channel_id)?;
-            self.sessions.insert(session.id.clone(), session);
+    pub fn load_sessions_from_path_with_fallback(
+        &self,
+        path: &str,
+        backup_count: usize,
+    ) -> Result<(usize, String)> {
+        let path = std::path::Path::new(path);
+        let mut candidates = vec![path.to_path_buf()];
+        for index in 1..=backup_count {
+            candidates.push(Self::backup_path(path, index));
         }
 
-        Ok(count)
+        let existing = candidates
+            .into_iter()
+            .filter(|candidate| candidate.exists())
+            .collect::<Vec<_>>();
+        if existing.is_empty() {
+            return Ok((0, path.display().to_string()));
+        }
+
+        let mut last_error = None;
+        for candidate in existing {
+            match self.load_sessions_from_specific_path(&candidate) {
+                Ok(count) => return Ok((count, candidate.display().to_string())),
+                Err(err) => last_error = Some(err),
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| AgentError::Unknown("No valid session snapshot found".to_string())))
     }
 
     pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {

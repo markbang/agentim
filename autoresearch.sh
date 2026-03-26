@@ -147,6 +147,15 @@ if [ "$persistence_rotation_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge persistence_reviewer_recovers_from_latest_valid_backup \
+  >/tmp/agentim-persistence-fallback-test.out 2>/tmp/agentim-persistence-fallback-test.err
+persistence_fallback_test_status=$?
+set -e
+if [ "$persistence_fallback_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge security_reviewer_rejects_missing_secret_and_accepts_valid_secret \
   >/tmp/agentim-security-test.out 2>/tmp/agentim-security-test.err
 security_test_status=$?
@@ -354,6 +363,12 @@ if [ "$persistence_rotation_test_status" -ne 0 ]; then
   echo '--- persistence rotation review test tail ---'
   tail -20 /tmp/agentim-persistence-rotation-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-persistence-rotation-test.out 2>/dev/null || true
+fi
+
+if [ "$persistence_fallback_test_status" -ne 0 ]; then
+  echo '--- persistence fallback review test tail ---'
+  tail -20 /tmp/agentim-persistence-fallback-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-persistence-fallback-test.out 2>/dev/null || true
 fi
 
 if [ "$security_test_status" -ne 0 ]; then

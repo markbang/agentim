@@ -294,8 +294,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(path) = state_file.as_deref() {
-        let restored = agentim.load_sessions_from_path(path)?;
-        cli::print_info(&format!("Restored {} sessions from {}", restored, path));
+        let (restored, loaded_from) = if state_backup_count > 0 {
+            agentim.load_sessions_from_path_with_fallback(path, state_backup_count)?
+        } else {
+            (agentim.load_sessions_from_path(path)?, path.to_string())
+        };
+        cli::print_info(&format!("Restored {} sessions from {}", restored, loaded_from));
         if state_backup_count > 0 {
             cli::print_info(&format!(
                 "State snapshot rotation enabled ({} backup file(s))",

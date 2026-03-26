@@ -99,6 +99,8 @@ export AGENTIM_MAX_SESSION_MESSAGES=50
 export AGENTIM_STATE_BACKUP_COUNT=2
 ```
 
+主快照损坏时，AgentIM 会在启动恢复阶段自动尝试最近的 `.bak.N` 备份。
+
 如果需要把某个用户、某个回复目标，或者某类回复目标前缀路由到特殊 agent，可以在 `agentim.json` 中配置：
 
 ```json

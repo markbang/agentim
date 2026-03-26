@@ -122,11 +122,13 @@ AGENTIM_DRY_RUN=1 ./start.sh
 
 ```json
 {
-  "max_session_messages": 50
+  "max_session_messages": 50,
+  "state_backup_count": 2
 }
 ```
 
 超过上限后，旧消息会被裁掉，只保留最近的消息窗口，避免 session 快速膨胀。
+如果主状态文件损坏，启动时还会尝试从最近的备份快照恢复。
 
 ## Webhook 路由
 

@@ -89,6 +89,8 @@ export AGENTIM_STATE_BACKUP_COUNT=2
 export AGENTIM_MAX_SESSION_MESSAGES=50
 ```
 
+当主状态文件损坏时，启动时会自动尝试从最近的 `.bak.N` 快照恢复。
+
 如果希望所有受保护路由都需要共享密钥：
 
 ```bash
