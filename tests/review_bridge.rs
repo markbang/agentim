@@ -522,3 +522,29 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Dry run complete"));
 }
+
+#[test]
+fn usability_reviewer_loads_runtime_config_file() {
+    let config_path = temp_state_file();
+    let config = r#"{
+  "agent": "codex",
+  "telegram_agent": "pi",
+  "state_file": ".agentim/test-sessions.json",
+  "webhook_secret": "cfg-secret",
+  "addr": "127.0.0.1:9090"
+}"#;
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args(["--config-file", &config_path, "--dry-run"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'codex' registered"));
+    assert!(stdout.contains("Telegram traffic -> pi agent"));
+    assert!(stdout.contains("Dry run complete"));
+
+    let _ = std::fs::remove_file(config_path);
+}

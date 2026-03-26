@@ -67,8 +67,10 @@ cargo run -- \
 ### 2. 使用 `start.sh`
 
 `start.sh` 是当前推荐的启动包装脚本，读取环境变量后拼出真实命令。
+你也可以提供 `AGENTIM_CONFIG_FILE=agentim.json`，让 JSON 配置作为默认值，再由命令行 / 环境变量覆盖。
 
 ```bash
+export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token

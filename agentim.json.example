@@ -1,31 +1,14 @@
 {
-  "agents": [
-    {
-      "id": "claude-main",
-      "agent_type": "claude",
-      "model": "claude-3-5-sonnet-20241022"
-    },
-    {
-      "id": "codex-main",
-      "agent_type": "codex",
-      "model": null
-    }
-  ],
-  "channels": [
-    {
-      "id": "telegram-main",
-      "channel_type": "telegram"
-    },
-    {
-      "id": "discord-main",
-      "channel_type": "discord"
-    }
-  ],
-  "sessions": [
-    {
-      "agent_id": "claude-main",
-      "channel_id": "telegram-main",
-      "user_id": "user123"
-    }
-  ]
+  "agent": "claude",
+  "telegram_agent": "pi",
+  "discord_agent": "codex",
+  "telegram_token": "YOUR_TELEGRAM_TOKEN",
+  "discord_token": "YOUR_DISCORD_TOKEN",
+  "feishu_app_id": "YOUR_FEISHU_APP_ID",
+  "feishu_app_secret": "YOUR_FEISHU_APP_SECRET",
+  "qq_bot_id": "YOUR_QQ_BOT_ID",
+  "qq_bot_token": "YOUR_QQ_BOT_TOKEN",
+  "state_file": ".agentim/sessions.json",
+  "webhook_secret": "change-me",
+  "addr": "127.0.0.1:8080"
 }

@@ -38,8 +38,8 @@ pub struct Args {
     pub qq_bot_token: Option<String>,
 
     /// Default agent type to use (claude, codex, pi) when no channel-specific override is set
-    #[arg(long, default_value = "claude")]
-    pub agent: String,
+    #[arg(long)]
+    pub agent: Option<String>,
 
     /// Agent override for Telegram traffic
     #[arg(long)]
@@ -57,6 +57,10 @@ pub struct Args {
     #[arg(long)]
     pub qq_agent: Option<String>,
 
+    /// Load runtime options from this JSON file; CLI flags still take precedence
+    #[arg(long)]
+    pub config_file: Option<String>,
+
     /// Validate startup configuration and exit before starting the server
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
@@ -70,8 +74,8 @@ pub struct Args {
     pub webhook_secret: Option<String>,
 
     /// Server address (default: 127.0.0.1:8080)
-    #[arg(long, default_value = "127.0.0.1:8080")]
-    pub addr: String,
+    #[arg(long)]
+    pub addr: Option<String>,
 }
 
 pub fn print_success(text: &str) {

@@ -3,12 +3,15 @@ set -euo pipefail
 
 AGENTIM_HOME="${AGENTIM_HOME:-.}"
 BINARY="${AGENTIM_HOME}/target/release/agentim"
-AGENT="${AGENTIM_AGENT:-claude}"
-ADDR="${AGENTIM_ADDR:-127.0.0.1:8080}"
+AGENT="${AGENTIM_AGENT:-}"
+ADDR="${AGENTIM_ADDR:-}"
 DRY_RUN="${AGENTIM_DRY_RUN:-0}"
 
-args=(--agent "$AGENT" --addr "$ADDR")
+args=()
+[[ -n "$AGENT" ]] && args+=(--agent "$AGENT")
+[[ -n "$ADDR" ]] && args+=(--addr "$ADDR")
 
+[[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
 [[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
@@ -46,8 +49,9 @@ echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
-echo "Agent:   $AGENT"
-echo "Address: $ADDR"
+echo "Agent:   ${AGENT:-from config or binary default (claude)}"
+echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
+[[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"

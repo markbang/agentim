@@ -53,6 +53,7 @@ cargo run -- \
 ## 方式 2：环境变量 + `start.sh`
 
 ```bash
+export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
@@ -69,6 +70,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 
 ## 支持的环境变量
 
+- `AGENTIM_CONFIG_FILE`
 - `AGENTIM_AGENT`
 - `AGENTIM_ADDR`
 - `AGENTIM_STATE_FILE`
