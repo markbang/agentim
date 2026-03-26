@@ -73,9 +73,17 @@ pub struct Args {
     #[arg(long)]
     pub max_session_messages: Option<usize>,
 
-    /// Require this shared secret in the x-agentim-secret header for webhook requests
+    /// Require this shared secret in the x-agentim-secret header for all protected routes
     #[arg(long)]
     pub webhook_secret: Option<String>,
+
+    /// Verify webhook requests with x-agentim-timestamp/x-agentim-nonce/x-agentim-signature HMAC headers
+    #[arg(long)]
+    pub webhook_signing_secret: Option<String>,
+
+    /// Maximum allowed timestamp skew in seconds for signed webhooks
+    #[arg(long)]
+    pub webhook_max_skew_seconds: Option<i64>,
 
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long)]

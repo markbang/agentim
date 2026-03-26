@@ -88,11 +88,22 @@ export AGENTIM_STATE_FILE=.agentim/sessions.json
 export AGENTIM_MAX_SESSION_MESSAGES=50
 ```
 
-如果希望 webhook 需要共享密钥才能进入：
+如果希望所有受保护路由都需要共享密钥：
 
 ```bash
 export AGENTIM_WEBHOOK_SECRET=change-me
 # 请求时带上 x-agentim-secret: change-me
+```
+
+如果希望 webhook 使用带时间戳/nonce 的 HMAC 签名校验：
+
+```bash
+export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
+export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
+# 请求头:
+#   x-agentim-timestamp
+#   x-agentim-nonce
+#   x-agentim-signature=sha256(<hmac>)
 ```
 
 先做 dry-run 看启动配置是否正确：

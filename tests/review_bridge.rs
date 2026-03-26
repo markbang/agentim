@@ -13,6 +13,8 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -107,6 +109,8 @@ fn register_review_channel(
         .unwrap();
 }
 
+type HmacSha256 = Hmac<Sha256>;
+
 fn temp_state_file() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -116,6 +120,24 @@ fn temp_state_file() -> String {
         .join(format!("agentim-review-{}.json", nanos))
         .display()
         .to_string()
+}
+
+fn signed_headers(secret: &str, body: &str, timestamp: i64, nonce: &str) -> [(String, String); 3] {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(timestamp.to_string().as_bytes());
+    mac.update(b"\n");
+    mac.update(nonce.as_bytes());
+    mac.update(b"\n");
+    mac.update(body.as_bytes());
+
+    [
+        ("x-agentim-timestamp".to_string(), timestamp.to_string()),
+        ("x-agentim-nonce".to_string(), nonce.to_string()),
+        (
+            "x-agentim-signature".to_string(),
+            format!("sha256={}", hex::encode(mac.finalize().into_bytes())),
+        ),
+    ]
 }
 
 fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> Arc<AgentIM> {
@@ -744,6 +766,78 @@ async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
 }
 
 #[tokio::test]
+async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            webhook_signing_secret: Some("signed-secret".to_string()),
+            webhook_max_skew_seconds: 300,
+            ..BotServerConfig::default()
+        },
+    );
+
+    let body = r#"{"update_id":14,"message":{"message_id":140,"chat":{"id":14},"text":"signed hello"}}"#;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let missing_signature = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_signature.status(), StatusCode::UNAUTHORIZED);
+
+    let invalid_signature = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .header("x-agentim-timestamp", now.to_string())
+                .header("x-agentim-nonce", "nonce-bad")
+                .header("x-agentim-signature", "sha256=deadbeef")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_signature.status(), StatusCode::UNAUTHORIZED);
+
+    let headers = signed_headers("signed-secret", body, now, "nonce-good");
+    let valid_request = headers.iter().fold(
+        Request::post("/telegram")
+            .header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let signed_ok = app
+        .clone()
+        .oneshot(valid_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(signed_ok.status(), StatusCode::OK);
+
+    let replay_request = headers.iter().fold(
+        Request::post("/telegram")
+            .header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let replay = app
+        .clone()
+        .oneshot(replay_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -765,6 +859,8 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             max_session_messages: Some(6),
             state_file: Some("/tmp/agentim-status.json".to_string()),
             webhook_secret: Some("inspect".to_string()),
+            webhook_signing_secret: Some("signed-inspect".to_string()),
+            webhook_max_skew_seconds: 120,
             ..BotServerConfig::default()
         },
     );
@@ -803,6 +899,8 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["max_session_messages"], 6);
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
+    assert_eq!(review_json["webhook_signing_enabled"], true);
+    assert_eq!(review_json["webhook_max_skew_seconds"], 120);
 }
 
 #[test]
@@ -841,6 +939,8 @@ fn usability_reviewer_loads_runtime_config_file() {
   "state_file": ".agentim/test-sessions.json",
   "max_session_messages": 4,
   "webhook_secret": "cfg-secret",
+  "webhook_signing_secret": "cfg-sign",
+  "webhook_max_skew_seconds": 90,
   "addr": "127.0.0.1:9090"
 }"#;
     std::fs::write(&config_path, config).unwrap();
@@ -856,6 +956,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Telegram traffic -> pi agent"));
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
+    assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);

@@ -76,6 +76,15 @@ export AGENTIM_WEBHOOK_SECRET=change-me
 # 所有 webhook 请求都需要 x-agentim-secret: change-me
 ```
 
+如果需要更强一点的 webhook 防护，可以启用签名校验 + replay 保护：
+
+```bash
+export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
+export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
+# x-agentim-signature = sha256(HMAC(secret, timestamp + "\n" + nonce + "\n" + raw_body))
+# 并附带 x-agentim-timestamp / x-agentim-nonce
+```
+
 如果你希望 session 历史不会无限增长：
 
 ```bash

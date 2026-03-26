@@ -99,3 +99,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added `max_session_messages` / `--max-session-messages` to bound session growth, wired it into webhook handling, surfaced it in `/reviewz`, and added reviewer coverage proving history trimming works.
 - Extended `routing_rules` further with prefix matching (`user_prefix`, `reply_target_prefix`) so groups of users/rooms can be mapped without enumerating every exact ID.
 - Updated examples/docs and added reviewer coverage proving prefix-based room routing overrides the platform default while unrelated rooms still fall back correctly.
+- Added optional HMAC-signed webhook verification with timestamp/nonce headers and replay protection (`--webhook-signing-secret`, `--webhook-max-skew-seconds`) on top of the simpler shared-secret guard.
+- Exposed signed-webhook status through `/reviewz`, updated startup/docs/examples, and added reviewer coverage proving missing/invalid signatures are rejected while valid signed requests pass exactly once.

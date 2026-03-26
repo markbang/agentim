@@ -53,6 +53,8 @@ struct RuntimeConfig {
     state_file: Option<String>,
     max_session_messages: Option<usize>,
     webhook_secret: Option<String>,
+    webhook_signing_secret: Option<String>,
+    webhook_max_skew_seconds: Option<i64>,
     addr: Option<String>,
 }
 
@@ -138,6 +140,14 @@ async fn main() -> anyhow::Result<()> {
     let state_file = merge_option(args.state_file, runtime_config.state_file);
     let max_session_messages = args.max_session_messages.or(runtime_config.max_session_messages);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
+    let webhook_signing_secret = merge_option(
+        args.webhook_signing_secret,
+        runtime_config.webhook_signing_secret,
+    );
+    let webhook_max_skew_seconds = args
+        .webhook_max_skew_seconds
+        .or(runtime_config.webhook_max_skew_seconds)
+        .unwrap_or(300);
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
@@ -283,6 +293,13 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    if webhook_signing_secret.is_some() {
+        cli::print_info(&format!(
+            "Signed webhook verification enabled (max skew: {}s)",
+            webhook_max_skew_seconds
+        ));
+    }
+
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
         return Ok(());
@@ -300,6 +317,8 @@ async fn main() -> anyhow::Result<()> {
         max_session_messages,
         state_file,
         webhook_secret,
+        webhook_signing_secret,
+        webhook_max_skew_seconds,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;

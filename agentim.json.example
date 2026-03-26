@@ -23,5 +23,7 @@
   "state_file": ".agentim/sessions.json",
   "max_session_messages": 50,
   "webhook_secret": "change-me",
+  "webhook_signing_secret": "change-me-signing",
+  "webhook_max_skew_seconds": 300,
   "addr": "127.0.0.1:8080"
 }

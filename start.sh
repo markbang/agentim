@@ -19,6 +19,8 @@ args=()
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && args+=(--webhook-secret "$AGENTIM_WEBHOOK_SECRET")
+[[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && args+=(--webhook-signing-secret "$AGENTIM_WEBHOOK_SIGNING_SECRET")
+[[ -n "${AGENTIM_WEBHOOK_MAX_SKEW_SECONDS:-}" ]] && args+=(--webhook-max-skew-seconds "$AGENTIM_WEBHOOK_MAX_SKEW_SECONDS")
 
 if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
   args+=(--telegram-token "$TELEGRAM_TOKEN")
@@ -57,6 +59,8 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
+[[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
+[[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
 echo
 
 echo "Command:"

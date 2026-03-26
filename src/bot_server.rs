@@ -4,13 +4,20 @@ use crate::bots::qq::{qq_webhook_handler, QQMessage};
 use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
 use crate::manager::AgentIM;
 use axum::{
-    extract::{Json, State},
+    body::Bytes,
+    extract::State,
     http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Router,
+    Json, Router,
 };
-use serde::Serialize;
+use chrono::Utc;
+use dashmap::DashMap;
+use hmac::{Hmac, Mac};
+use serde::{de::DeserializeOwned, Serialize};
+use sha2::Sha256;
 use std::sync::Arc;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RoutingRule {
@@ -54,6 +61,8 @@ pub struct BotServerConfig {
     pub max_session_messages: Option<usize>,
     pub state_file: Option<String>,
     pub webhook_secret: Option<String>,
+    pub webhook_signing_secret: Option<String>,
+    pub webhook_max_skew_seconds: i64,
 }
 
 impl BotServerConfig {
@@ -83,6 +92,8 @@ impl Default for BotServerConfig {
             max_session_messages: None,
             state_file: None,
             webhook_secret: None,
+            webhook_signing_secret: None,
+            webhook_max_skew_seconds: 300,
         }
     }
 }
@@ -91,6 +102,7 @@ impl Default for BotServerConfig {
 struct AppState {
     agentim: Arc<AgentIM>,
     config: BotServerConfig,
+    replay_cache: Arc<DashMap<String, i64>>,
 }
 
 #[derive(Serialize)]
@@ -111,6 +123,8 @@ struct ReviewResponse {
     max_session_messages: Option<usize>,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
+    webhook_signing_enabled: bool,
+    webhook_max_skew_seconds: i64,
 }
 
 #[derive(Serialize)]
@@ -132,7 +146,7 @@ fn persist_if_configured(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
+fn authorize_shared(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
     if let Some(expected) = state.config.webhook_secret.as_deref() {
         let provided = headers
             .get("x-agentim-secret")
@@ -146,11 +160,81 @@ fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+fn prune_replay_cache(state: &AppState, oldest_allowed_timestamp: i64) {
+    let stale: Vec<String> = state
+        .replay_cache
+        .iter()
+        .filter(|entry| *entry.value() < oldest_allowed_timestamp)
+        .map(|entry| entry.key().clone())
+        .collect();
+
+    for key in stale {
+        state.replay_cache.remove(&key);
+    }
+}
+
+fn authorize_signed_webhook(headers: &HeaderMap, body: &Bytes, state: &AppState) -> Result<(), String> {
+    let Some(secret) = state.config.webhook_signing_secret.as_deref() else {
+        return Ok(());
+    };
+
+    let timestamp = headers
+        .get("x-agentim-timestamp")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-agentim-timestamp".to_string())?;
+    let nonce = headers
+        .get("x-agentim-nonce")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-agentim-nonce".to_string())?;
+    let signature = headers
+        .get("x-agentim-signature")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-agentim-signature".to_string())?;
+
+    let timestamp_value = timestamp
+        .parse::<i64>()
+        .map_err(|_| "invalid x-agentim-timestamp".to_string())?;
+    let now = Utc::now().timestamp();
+    let max_skew = state.config.webhook_max_skew_seconds;
+
+    if (now - timestamp_value).abs() > max_skew {
+        return Err("signed webhook timestamp out of range".to_string());
+    }
+
+    prune_replay_cache(state, now - max_skew);
+    let replay_key = format!("{}:{}", timestamp_value, nonce);
+    if state.replay_cache.contains_key(&replay_key) {
+        return Err("replayed webhook request".to_string());
+    }
+
+    let signature_hex = signature.strip_prefix("sha256=").unwrap_or(signature);
+    let provided_signature = hex::decode(signature_hex)
+        .map_err(|_| "invalid x-agentim-signature encoding".to_string())?;
+
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| "invalid webhook signing secret".to_string())?;
+    mac.update(timestamp.as_bytes());
+    mac.update(b"\n");
+    mac.update(nonce.as_bytes());
+    mac.update(b"\n");
+    mac.update(body);
+
+    mac.verify_slice(&provided_signature)
+        .map_err(|_| "invalid x-agentim-signature".to_string())?;
+
+    state.replay_cache.insert(replay_key, timestamp_value);
+    Ok(())
+}
+
+fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
+    serde_json::from_slice(body).map_err(|err| err.to_string())
+}
+
 async fn healthz(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> (StatusCode, Json<HealthResponse>) {
-    if authorize(&headers, &state).is_err() {
+    if authorize_shared(&headers, &state).is_err() {
         return (
             StatusCode::UNAUTHORIZED,
             Json(HealthResponse {
@@ -177,7 +261,7 @@ async fn reviewz(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> (StatusCode, Json<ReviewResponse>) {
-    if authorize(&headers, &state).is_err() {
+    if authorize_shared(&headers, &state).is_err() {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ReviewResponse {
@@ -194,6 +278,8 @@ async fn reviewz(
                 max_session_messages: None,
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
+                webhook_signing_enabled: false,
+                webhook_max_skew_seconds: 0,
             }),
         );
     }
@@ -214,6 +300,8 @@ async fn reviewz(
             max_session_messages: state.config.max_session_messages,
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
+            webhook_signing_enabled: state.config.webhook_signing_secret.is_some(),
+            webhook_max_skew_seconds: state.config.webhook_max_skew_seconds,
         }),
     )
 }
@@ -221,11 +309,19 @@ async fn reviewz(
 async fn telegram_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(update): Json<TelegramUpdate>,
+    body: Bytes,
 ) -> (StatusCode, String) {
-    if let Err(err) = authorize(&headers, &state) {
+    if let Err(err) = authorize_shared(&headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let update: TelegramUpdate = match parse_json_body(&body) {
+        Ok(update) => update,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
 
     let agent_id = update
         .message
@@ -250,7 +346,8 @@ async fn telegram_webhook(
         state.config.max_session_messages,
         update,
     )
-    .await {
+    .await
+    {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -265,11 +362,19 @@ async fn telegram_webhook(
 async fn discord_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(message): Json<DiscordMessage>,
+    body: Bytes,
 ) -> (StatusCode, String) {
-    if let Err(err) = authorize(&headers, &state) {
+    if let Err(err) = authorize_shared(&headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let message: DiscordMessage = match parse_json_body(&body) {
+        Ok(message) => message,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
 
     let agent_id = state
         .config
@@ -287,7 +392,8 @@ async fn discord_webhook(
         state.config.max_session_messages,
         message,
     )
-    .await {
+    .await
+    {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -302,11 +408,19 @@ async fn discord_webhook(
 async fn feishu_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(message): Json<FeishuMessage>,
+    body: Bytes,
 ) -> (StatusCode, String) {
-    if let Err(err) = authorize(&headers, &state) {
+    if let Err(err) = authorize_shared(&headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let message: FeishuMessage = match parse_json_body(&body) {
+        Ok(message) => message,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
 
     let agent_id = state
         .config
@@ -324,7 +438,8 @@ async fn feishu_webhook(
         state.config.max_session_messages,
         message,
     )
-    .await {
+    .await
+    {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -339,11 +454,19 @@ async fn feishu_webhook(
 async fn qq_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(message): Json<QQMessage>,
+    body: Bytes,
 ) -> (StatusCode, String) {
-    if let Err(err) = authorize(&headers, &state) {
+    if let Err(err) = authorize_shared(&headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let message: QQMessage = match parse_json_body(&body) {
+        Ok(message) => message,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
 
     let agent_id = state
         .config
@@ -361,7 +484,8 @@ async fn qq_webhook(
         state.config.max_session_messages,
         message,
     )
-    .await {
+    .await
+    {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -385,7 +509,11 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/discord", post(discord_webhook))
         .route("/feishu", post(feishu_webhook))
         .route("/qq", post(qq_webhook))
-        .with_state(AppState { agentim, config })
+        .with_state(AppState {
+            agentim,
+            config,
+            replay_cache: Arc::new(DashMap::new()),
+        })
 }
 
 pub async fn start_bot_server(
