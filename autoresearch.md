@@ -115,3 +115,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer coverage proving rotated backup recovery works instead of failing hard on a broken primary snapshot.
 - Improved `history_summary` compaction so trimmed user/assistant turns are collapsed into deterministic `[turn] user => assistant` fragments rather than noisier per-message listings.
 - Added reviewer/unit coverage proving trimmed history summaries now preserve paired turn structure in a more compact form.
+- Added Feishu URL verification challenge handling on `/feishu`, so webhook onboarding can complete without routing the challenge payload through an agent.
+- Added reviewer coverage proving `type=url_verification` requests return the expected challenge response payload directly.

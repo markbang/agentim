@@ -23,7 +23,7 @@
 ### IM Channels / Webhook Routes
 - Telegram → `POST /telegram`
 - Discord → `POST /discord`
-- Feishu / Lark → `POST /feishu`
+- Feishu / Lark → `POST /feishu`（支持 URL verification challenge）
 - QQ → `POST /qq`
 
 ### Review / Ops Endpoints

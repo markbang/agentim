@@ -1232,6 +1232,30 @@ async fn security_reviewer_accepts_telegram_secret_token_only_when_header_matche
 }
 
 #[tokio::test]
+async fn functionality_reviewer_handles_feishu_url_verification_challenge() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router(agentim);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/feishu")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"type":"url_verification","challenge":"verify-me","token":"token"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["challenge"], "verify-me");
+}
+
+#[tokio::test]
 async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);

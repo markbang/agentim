@@ -42,6 +42,8 @@ cargo run -- \
   --feishu-app-secret "$FEISHU_APP_SECRET"
 ```
 
+首次接 webhook 时，`/feishu` 现在会直接处理 `type=url_verification` challenge。
+
 ### QQ
 
 ```bash

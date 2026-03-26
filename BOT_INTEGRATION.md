@@ -129,6 +129,7 @@ export AGENTIM_STATE_BACKUP_COUNT=2
 - 路由：`/feishu`
 - 参数：`--feishu-app-id --feishu-app-secret`
 - 兼容旧格式：`--feishu-token app_id:app_secret`
+- 支持 `type=url_verification` challenge 直返 challenge 响应，便于 webhook 首次接入
 
 ### QQ
 - 回复目标：`channel_id`

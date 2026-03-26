@@ -192,6 +192,15 @@ if [ "$telegram_secret_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge functionality_reviewer_handles_feishu_url_verification_challenge \
+  >/tmp/agentim-feishu-challenge-test.out 2>/tmp/agentim-feishu-challenge-test.err
+feishu_challenge_test_status=$?
+set -e
+if [ "$feishu_challenge_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge ops_reviewer_reports_runtime_status_and_review_config \
   >/tmp/agentim-ops-test.out 2>/tmp/agentim-ops-test.err
 ops_test_status=$?
@@ -402,6 +411,12 @@ if [ "$telegram_secret_test_status" -ne 0 ]; then
   echo '--- telegram native secret review test tail ---'
   tail -20 /tmp/agentim-telegram-secret-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-telegram-secret-test.out 2>/dev/null || true
+fi
+
+if [ "$feishu_challenge_test_status" -ne 0 ]; then
+  echo '--- feishu challenge review test tail ---'
+  tail -20 /tmp/agentim-feishu-challenge-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-feishu-challenge-test.out 2>/dev/null || true
 fi
 
 if [ "$ops_test_status" -ne 0 ]; then

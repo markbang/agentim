@@ -156,6 +156,11 @@ struct PlatformAgents {
     qq: String,
 }
 
+#[derive(Serialize)]
+struct FeishuChallengeResponse {
+    challenge: String,
+}
+
 fn persist_if_configured(state: &AppState) -> Result<(), String> {
     if let Some(path) = state.config.state_file.as_deref() {
         state
@@ -462,6 +467,20 @@ async fn feishu_webhook(
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
         return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
+        if value.get("type").and_then(|value| value.as_str()) == Some("url_verification") {
+            if let Some(challenge) = value.get("challenge").and_then(|value| value.as_str()) {
+                return (
+                    StatusCode::OK,
+                    serde_json::to_string(&FeishuChallengeResponse {
+                        challenge: challenge.to_string(),
+                    })
+                    .unwrap_or_else(|_| format!("{{\"challenge\":\"{}\"}}", challenge)),
+                );
+            }
+        }
     }
 
     let message: FeishuMessage = match parse_json_body(&body) {
