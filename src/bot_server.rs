@@ -6,9 +6,10 @@ use crate::manager::AgentIM;
 use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
-    routing::post,
+    routing::{get, post},
     Router,
 };
+use serde::Serialize;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -40,6 +41,32 @@ struct AppState {
     config: BotServerConfig,
 }
 
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    agents: usize,
+    channels: usize,
+    sessions: usize,
+}
+
+#[derive(Serialize)]
+struct ReviewResponse {
+    agents: Vec<String>,
+    channels: Vec<String>,
+    sessions: usize,
+    platform_agents: PlatformAgents,
+    persistence_enabled: bool,
+    webhook_secret_enabled: bool,
+}
+
+#[derive(Serialize)]
+struct PlatformAgents {
+    telegram: String,
+    discord: String,
+    feishu: String,
+    qq: String,
+}
+
 fn persist_if_configured(state: &AppState) -> Result<(), String> {
     if let Some(path) = state.config.state_file.as_deref() {
         state
@@ -63,6 +90,68 @@ fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCode, Json<HealthResponse>) {
+    if authorize(&headers, &state).is_err() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(HealthResponse {
+                status: "unauthorized",
+                agents: 0,
+                channels: 0,
+                sessions: 0,
+            }),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(HealthResponse {
+            status: "ok",
+            agents: state.agentim.list_agents().len(),
+            channels: state.agentim.list_channels().len(),
+            sessions: state.agentim.list_sessions().len(),
+        }),
+    )
+}
+
+async fn reviewz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCode, Json<ReviewResponse>) {
+    if authorize(&headers, &state).is_err() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ReviewResponse {
+                agents: Vec::new(),
+                channels: Vec::new(),
+                sessions: 0,
+                platform_agents: PlatformAgents {
+                    telegram: String::new(),
+                    discord: String::new(),
+                    feishu: String::new(),
+                    qq: String::new(),
+                },
+                persistence_enabled: false,
+                webhook_secret_enabled: true,
+            }),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(ReviewResponse {
+            agents: state.agentim.list_agents(),
+            channels: state.agentim.list_channels(),
+            sessions: state.agentim.list_sessions().len(),
+            platform_agents: PlatformAgents {
+                telegram: state.config.telegram_agent_id.clone(),
+                discord: state.config.discord_agent_id.clone(),
+                feishu: state.config.feishu_agent_id.clone(),
+                qq: state.config.qq_agent_id.clone(),
+            },
+            persistence_enabled: state.config.state_file.is_some(),
+            webhook_secret_enabled: state.config.webhook_secret.is_some(),
+        }),
+    )
 }
 
 async fn telegram_webhook(
@@ -179,6 +268,8 @@ pub fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
 
 pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig) -> Router {
     Router::new()
+        .route("/healthz", get(healthz))
+        .route("/reviewz", get(reviewz))
         .route("/telegram", post(telegram_webhook))
         .route("/discord", post(discord_webhook))
         .route("/feishu", post(feishu_webhook))

@@ -8,7 +8,7 @@ use agentim::session::Message;
 use agentim::Result;
 use async_trait::async_trait;
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
 use std::sync::{Arc, Mutex};
@@ -437,4 +437,64 @@ async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
         .await
         .unwrap();
     assert_eq!(authorized.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn ops_reviewer_reports_runtime_status_and_review_config() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    agentim
+        .handle_incoming_message(
+            "default-agent",
+            TELEGRAM_CHANNEL_ID,
+            "status-user",
+            Some("status-user"),
+            "status ping".to_string(),
+        )
+        .await
+        .unwrap();
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            telegram_agent_id: "default-agent".to_string(),
+            state_file: Some("/tmp/agentim-status.json".to_string()),
+            webhook_secret: Some("inspect".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let health = app
+        .clone()
+        .oneshot(
+            Request::get("/healthz")
+                .header("x-agentim-secret", "inspect")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    let health_bytes = to_bytes(health.into_body(), usize::MAX).await.unwrap();
+    let health_json: serde_json::Value = serde_json::from_slice(&health_bytes).unwrap();
+    assert_eq!(health_json["status"], "ok");
+    assert_eq!(health_json["sessions"], 1);
+
+    let review = app
+        .clone()
+        .oneshot(
+            Request::get("/reviewz")
+                .header("x-agentim-secret", "inspect")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(review.status(), StatusCode::OK);
+    let review_bytes = to_bytes(review.into_body(), usize::MAX).await.unwrap();
+    let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
+    assert_eq!(review_json["sessions"], 1);
+    assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
+    assert_eq!(review_json["persistence_enabled"], true);
+    assert_eq!(review_json["webhook_secret_enabled"], true);
 }

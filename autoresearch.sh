@@ -74,6 +74,15 @@ if [ "$security_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
+set +e
+cargo test --quiet --test review_bridge ops_reviewer_reports_runtime_status_and_review_config \
+  >/tmp/agentim-ops-test.out 2>/tmp/agentim-ops-test.err
+ops_test_status=$?
+set -e
+if [ "$ops_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
 route_count=$(python3 - <<'PY'
 from pathlib import Path
 text = Path('src/bot_server.rs').read_text() if Path('src/bot_server.rs').exists() else ''
@@ -180,4 +189,10 @@ if [ "$security_test_status" -ne 0 ]; then
   echo '--- security review test tail ---'
   tail -20 /tmp/agentim-security-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-security-test.out 2>/dev/null || true
+fi
+
+if [ "$ops_test_status" -ne 0 ]; then
+  echo '--- ops review test tail ---'
+  tail -20 /tmp/agentim-ops-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-ops-test.out 2>/dev/null || true
 fi

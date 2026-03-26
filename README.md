@@ -22,6 +22,10 @@
 - Feishu / Lark → `POST /feishu`
 - QQ → `POST /qq`
 
+### Review / Ops Endpoints
+- Health → `GET /healthz`
+- Review snapshot → `GET /reviewz`
+
 ## 关键特性
 
 - 多平台 webhook 接入
