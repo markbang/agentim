@@ -95,3 +95,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer coverage for clean snapshot persistence so runtime saves leave a valid JSON file without lingering temp artifacts.
 - Added config-driven `routing_rules` so the binary can override platform-level routing for specific users without requiring code changes.
 - Exposed resolved routing rules through `/reviewz`, updated the runtime docs/examples, and added reviewer coverage proving user-level rules override the platform default route.
+- Extended `routing_rules` to match on `reply_target` as well, so Discord/QQ rooms or other reply destinations can be routed independently from the sender identity.
+- Added `max_session_messages` / `--max-session-messages` to bound session growth, wired it into webhook handling, surfaced it in `/reviewz`, and added reviewer coverage proving history trimming works.

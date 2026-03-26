@@ -363,6 +363,7 @@ async fn routing_reviewer_overrides_platform_route_for_matching_user() {
             routing_rules: vec![RoutingRule {
                 channel: Some("telegram".to_string()),
                 user_id: Some("999".to_string()),
+                reply_target: None,
                 agent_id: "rule-agent-pi".to_string(),
             }],
             ..BotServerConfig::default()
@@ -408,6 +409,123 @@ async fn routing_reviewer_overrides_platform_route_for_matching_user() {
         "555".to_string(),
         "telegram:normal route".to_string(),
     )));
+}
+
+#[tokio::test]
+async fn routing_reviewer_overrides_platform_route_for_matching_reply_target() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+
+    register_review_agent(&agentim, "default-agent", "default");
+    register_review_agent(&agentim, "discord-agent", "discord");
+    register_review_agent(&agentim, "rule-agent-codex", "room");
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        DISCORD_CHANNEL_ID,
+        ChannelType::Discord,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            discord_agent_id: "discord-agent".to_string(),
+            routing_rules: vec![RoutingRule {
+                channel: Some("discord".to_string()),
+                user_id: None,
+                reply_target: Some("room-1".to_string()),
+                agent_id: "rule-agent-codex".to_string(),
+            }],
+            ..BotServerConfig::default()
+        },
+    );
+
+    let room_match = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"id":"m4","author":{"id":"user-a","username":"discorder-a"},"content":"room route","channel_id":"room-1"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(room_match.status(), StatusCode::OK);
+
+    let room_default = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"id":"m5","author":{"id":"user-b","username":"discorder-b"},"content":"default room","channel_id":"room-2"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(room_default.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        DISCORD_CHANNEL_ID.to_string(),
+        "room-1".to_string(),
+        "room:room route".to_string(),
+    )));
+    assert!(sent.contains(&(
+        DISCORD_CHANNEL_ID.to_string(),
+        "room-2".to_string(),
+        "discord:default room".to_string(),
+    )));
+}
+
+#[tokio::test]
+async fn readiness_reviewer_enforces_max_session_messages() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            max_session_messages: Some(2),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":6,"message":{"message_id":60,"chat":{"id":321},"text":"first turn"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":7,"message":{"message_id":70,"chat":{"id":321},"text":"second turn"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let sessions = agentim.list_sessions();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].messages.len(), 2);
+    assert_eq!(sessions[0].messages[0].content, "second turn");
+    assert_eq!(sessions[0].messages[1].content, "default:second turn");
 }
 
 #[tokio::test]
@@ -568,6 +686,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
         agentim,
         BotServerConfig {
             telegram_agent_id: "default-agent".to_string(),
+            max_session_messages: Some(6),
             state_file: Some("/tmp/agentim-status.json".to_string()),
             webhook_secret: Some("inspect".to_string()),
             ..BotServerConfig::default()
@@ -605,6 +724,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
     assert_eq!(review_json["sessions"], 1);
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
+    assert_eq!(review_json["max_session_messages"], 6);
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
 }
@@ -642,6 +762,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     {"channel": "telegram", "user_id": "vip-user", "agent": "claude"}
   ],
   "state_file": ".agentim/test-sessions.json",
+  "max_session_messages": 4,
   "webhook_secret": "cfg-secret",
   "addr": "127.0.0.1:9090"
 }"#;
@@ -657,6 +778,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Default agent 'codex' registered"));
     assert!(stdout.contains("Telegram traffic -> pi agent"));
     assert!(stdout.contains("Loaded 1 routing rule"));
+    assert!(stdout.contains("Session history will be trimmed to 4 message"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);

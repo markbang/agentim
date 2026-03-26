@@ -35,6 +35,7 @@ export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_STATE_FILE=.agentim/sessions.json
+export AGENTIM_MAX_SESSION_MESSAGES=50
 export AGENTIM_WEBHOOK_SECRET=change-me
 export TELEGRAM_TOKEN=your-token
 ./start.sh
@@ -45,7 +46,8 @@ export TELEGRAM_TOKEN=your-token
 ```json
 {
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
+    {"channel": "discord", "reply_target": "review-room", "agent": "codex"}
   ]
 }
 ```

@@ -146,18 +146,20 @@ impl Channel for FeishuBotChannel {
 pub async fn feishu_webhook_handler(
     agentim: Arc<AgentIM>,
     agent_id: &str,
+    max_session_messages: Option<usize>,
     message: FeishuMessage,
 ) -> Result<()> {
     let user_id = message.event.message.sender_id.user_id;
     let content = message.event.message.content;
 
     agentim
-        .handle_incoming_message(
+        .handle_incoming_message_with_limit(
             agent_id,
             FEISHU_CHANNEL_ID,
             &user_id,
             Some(&user_id),
             content,
+            max_session_messages,
         )
         .await?;
 

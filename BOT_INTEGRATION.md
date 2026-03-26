@@ -76,13 +76,19 @@ export AGENTIM_WEBHOOK_SECRET=change-me
 # 所有 webhook 请求都需要 x-agentim-secret: change-me
 ```
 
-如果需要把某个用户路由到特殊 agent，可以在 `agentim.json` 中配置：
+如果你希望 session 历史不会无限增长：
+
+```bash
+export AGENTIM_MAX_SESSION_MESSAGES=50
+```
+
+如果需要把某个用户或某个回复目标路由到特殊 agent，可以在 `agentim.json` 中配置：
 
 ```json
 {
   "routing_rules": [
     {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
-    {"channel": "discord", "user_id": "reviewer-42", "agent": "codex"}
+    {"channel": "discord", "reply_target": "review-room", "agent": "codex"}
   ]
 }
 ```

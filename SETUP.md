@@ -75,6 +75,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_AGENT`
 - `AGENTIM_ADDR`
 - `AGENTIM_STATE_FILE`
+- `AGENTIM_MAX_SESSION_MESSAGES`
 - `AGENTIM_WEBHOOK_SECRET`
 - `TELEGRAM_AGENT`
 - `DISCORD_AGENT`
@@ -100,15 +101,28 @@ AGENTIM_DRY_RUN=1 ./start.sh
   "agent": "claude",
   "telegram_agent": "codex",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
+    {"channel": "discord", "reply_target": "review-room", "agent": "codex"}
   ]
 }
 ```
 
 优先级：
-1. `routing_rules` 命中
+1. `routing_rules` 命中（可按 `channel` + `user_id` 或 `reply_target` 匹配）
 2. 平台级 agent override
 3. 默认 `agent`
+
+## Session 历史控制
+
+你可以在 JSON 配置或 CLI 中设置：
+
+```json
+{
+  "max_session_messages": 50
+}
+```
+
+超过上限后，旧消息会被裁掉，只保留最近的消息窗口，避免 session 快速膨胀。
 
 ## Webhook 路由
 

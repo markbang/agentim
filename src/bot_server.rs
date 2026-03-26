@@ -16,13 +16,19 @@ use std::sync::Arc;
 pub struct RoutingRule {
     pub channel: Option<String>,
     pub user_id: Option<String>,
+    pub reply_target: Option<String>,
     pub agent_id: String,
 }
 
 impl RoutingRule {
-    fn matches(&self, channel: &str, user_id: &str) -> bool {
+    fn matches(&self, channel: &str, user_id: &str, reply_target: &str) -> bool {
         self.channel.as_deref().map(|value| value == channel).unwrap_or(true)
             && self.user_id.as_deref().map(|value| value == user_id).unwrap_or(true)
+            && self
+                .reply_target
+                .as_deref()
+                .map(|value| value == reply_target)
+                .unwrap_or(true)
     }
 }
 
@@ -33,15 +39,22 @@ pub struct BotServerConfig {
     pub feishu_agent_id: String,
     pub qq_agent_id: String,
     pub routing_rules: Vec<RoutingRule>,
+    pub max_session_messages: Option<usize>,
     pub state_file: Option<String>,
     pub webhook_secret: Option<String>,
 }
 
 impl BotServerConfig {
-    fn resolve_agent<'a>(&'a self, channel: &str, user_id: &str, fallback: &'a str) -> &'a str {
+    fn resolve_agent<'a>(
+        &'a self,
+        channel: &str,
+        user_id: &str,
+        reply_target: &str,
+        fallback: &'a str,
+    ) -> &'a str {
         self.routing_rules
             .iter()
-            .find(|rule| rule.matches(channel, user_id))
+            .find(|rule| rule.matches(channel, user_id, reply_target))
             .map(|rule| rule.agent_id.as_str())
             .unwrap_or(fallback)
     }
@@ -55,6 +68,7 @@ impl Default for BotServerConfig {
             feishu_agent_id: "default-agent".to_string(),
             qq_agent_id: "default-agent".to_string(),
             routing_rules: Vec::new(),
+            max_session_messages: None,
             state_file: None,
             webhook_secret: None,
         }
@@ -82,6 +96,7 @@ struct ReviewResponse {
     sessions: usize,
     platform_agents: PlatformAgents,
     routing_rules: Vec<RoutingRule>,
+    max_session_messages: Option<usize>,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
 }
@@ -164,6 +179,7 @@ async fn reviewz(
                     qq: String::new(),
                 },
                 routing_rules: Vec::new(),
+                max_session_messages: None,
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
             }),
@@ -183,6 +199,7 @@ async fn reviewz(
                 qq: state.config.qq_agent_id.clone(),
             },
             routing_rules: state.config.routing_rules.clone(),
+            max_session_messages: state.config.max_session_messages,
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
         }),
@@ -205,12 +222,23 @@ async fn telegram_webhook(
             let user_id = message.chat.id.to_string();
             state
                 .config
-                .resolve_agent("telegram", &user_id, state.config.telegram_agent_id.as_str())
+                .resolve_agent(
+                    "telegram",
+                    &user_id,
+                    &user_id,
+                    state.config.telegram_agent_id.as_str(),
+                )
                 .to_string()
         })
         .unwrap_or_else(|| state.config.telegram_agent_id.clone());
 
-    match telegram_webhook_handler(state.agentim.clone(), &agent_id, update).await {
+    match telegram_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        update,
+    )
+    .await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -236,11 +264,18 @@ async fn discord_webhook(
         .resolve_agent(
             "discord",
             &message.author.id,
+            &message.channel_id,
             state.config.discord_agent_id.as_str(),
         )
         .to_string();
 
-    match discord_webhook_handler(state.agentim.clone(), &agent_id, message).await {
+    match discord_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        message,
+    )
+    .await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -266,11 +301,18 @@ async fn feishu_webhook(
         .resolve_agent(
             "feishu",
             &message.event.message.sender_id.user_id,
+            &message.event.message.sender_id.user_id,
             state.config.feishu_agent_id.as_str(),
         )
         .to_string();
 
-    match feishu_webhook_handler(state.agentim.clone(), &agent_id, message).await {
+    match feishu_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        message,
+    )
+    .await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -293,10 +335,21 @@ async fn qq_webhook(
 
     let agent_id = state
         .config
-        .resolve_agent("qq", &message.author.id, state.config.qq_agent_id.as_str())
+        .resolve_agent(
+            "qq",
+            &message.author.id,
+            &message.channel_id,
+            state.config.qq_agent_id.as_str(),
+        )
         .to_string();
 
-    match qq_webhook_handler(state.agentim.clone(), &agent_id, message).await {
+    match qq_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        message,
+    )
+    .await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),

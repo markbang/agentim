@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --webhook-secret --addr; do
+  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --max-session-messages --webhook-secret --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -62,6 +62,24 @@ cargo test --quiet --test review_bridge routing_reviewer_overrides_platform_rout
 routing_rule_test_status=$?
 set -e
 if [ "$routing_rule_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge routing_reviewer_overrides_platform_route_for_matching_reply_target \
+  >/tmp/agentim-reply-target-rule-test.out 2>/tmp/agentim-reply-target-rule-test.err
+reply_target_rule_test_status=$?
+set -e
+if [ "$reply_target_rule_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge readiness_reviewer_enforces_max_session_messages \
+  >/tmp/agentim-max-history-test.out 2>/tmp/agentim-max-history-test.err
+max_history_test_status=$?
+set -e
+if [ "$max_history_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -219,6 +237,18 @@ if [ "$routing_rule_test_status" -ne 0 ]; then
   echo '--- routing-rule review test tail ---'
   tail -20 /tmp/agentim-routing-rule-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-routing-rule-test.out 2>/dev/null || true
+fi
+
+if [ "$reply_target_rule_test_status" -ne 0 ]; then
+  echo '--- reply-target routing review test tail ---'
+  tail -20 /tmp/agentim-reply-target-rule-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-reply-target-rule-test.out 2>/dev/null || true
+fi
+
+if [ "$max_history_test_status" -ne 0 ]; then
+  echo '--- max-history review test tail ---'
+  tail -20 /tmp/agentim-max-history-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-max-history-test.out 2>/dev/null || true
 fi
 
 if [ "$persistence_test_status" -ne 0 ]; then

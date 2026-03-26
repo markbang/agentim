@@ -35,7 +35,7 @@
 - 多平台 webhook 接入
 - 默认 agent + 按平台 agent override + 按用户规则路由
 - 统一 `Agent` / `Channel` trait
-- 自动 session 创建、复用与可选持久化（`--state-file`）
+- 自动 session 创建、复用、可选持久化（`--state-file`）与可选历史裁剪（`--max-session-messages`）
 - 会话级 `reply_target` 管理
   - Telegram / Feishu 用用户标识回发
   - Discord / QQ 用 channel 标识回发
@@ -81,10 +81,11 @@ export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```
 
-如果希望 session 在重启后恢复，可以再加：
+如果希望 session 在重启后恢复，并控制历史长度，可以再加：
 
 ```bash
 export AGENTIM_STATE_FILE=.agentim/sessions.json
+export AGENTIM_MAX_SESSION_MESSAGES=50
 ```
 
 如果希望 webhook 需要共享密钥才能进入：
@@ -127,7 +128,7 @@ Incoming webhook
 ```
 
 这意味着 Discord / QQ 这类“用户 ID 和回复 channel ID 不同”的平台，也能走统一桥接路径。
-另外，运行时 JSON 配置里的 `routing_rules` 可以把特定平台上的特定用户定向到不同 agent。
+另外，运行时 JSON 配置里的 `routing_rules` 可以把特定平台上的特定用户，或特定 `reply_target`（如 Discord / QQ 频道）定向到不同 agent。
 
 ## Review / Eval
 

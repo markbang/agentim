@@ -27,6 +27,7 @@ use std::{collections::HashMap, fs, sync::Arc};
 struct RuntimeRoutingRuleConfig {
     channel: Option<String>,
     user_id: Option<String>,
+    reply_target: Option<String>,
     agent: String,
 }
 
@@ -48,6 +49,7 @@ struct RuntimeConfig {
     qq_bot_id: Option<String>,
     qq_bot_token: Option<String>,
     state_file: Option<String>,
+    max_session_messages: Option<usize>,
     webhook_secret: Option<String>,
     addr: Option<String>,
 }
@@ -132,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
     let qq_bot_id = merge_option(args.qq_bot_id, runtime_config.qq_bot_id);
     let qq_bot_token = merge_option(args.qq_bot_token, runtime_config.qq_bot_token);
     let state_file = merge_option(args.state_file, runtime_config.state_file);
+    let max_session_messages = args.max_session_messages.or(runtime_config.max_session_messages);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
@@ -180,6 +183,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(RoutingRule {
                 channel: rule.channel,
                 user_id: rule.user_id,
+                reply_target: rule.reply_target,
                 agent_id,
             })
         })
@@ -268,6 +272,13 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info(&format!("Restored {} sessions from {}", restored, path));
     }
 
+    if let Some(max_session_messages) = max_session_messages {
+        cli::print_info(&format!(
+            "Session history will be trimmed to {} message(s)",
+            max_session_messages
+        ));
+    }
+
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
         return Ok(());
@@ -282,6 +293,7 @@ async fn main() -> anyhow::Result<()> {
         feishu_agent_id,
         qq_agent_id,
         routing_rules,
+        max_session_messages,
         state_file,
         webhook_secret,
     };

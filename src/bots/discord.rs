@@ -112,6 +112,7 @@ impl Channel for DiscordBotChannel {
 pub async fn discord_webhook_handler(
     agentim: Arc<AgentIM>,
     agent_id: &str,
+    max_session_messages: Option<usize>,
     message: DiscordMessage,
 ) -> Result<()> {
     let user_id = message.author.id;
@@ -119,12 +120,13 @@ pub async fn discord_webhook_handler(
     let content = message.content;
 
     agentim
-        .handle_incoming_message(
+        .handle_incoming_message_with_limit(
             agent_id,
             DISCORD_CHANNEL_ID,
             &user_id,
             Some(&reply_target),
             content,
+            max_session_messages,
         )
         .await?;
 

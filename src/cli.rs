@@ -69,6 +69,10 @@ pub struct Args {
     #[arg(long)]
     pub state_file: Option<String>,
 
+    /// Trim session history to this many messages after each webhook round-trip
+    #[arg(long)]
+    pub max_session_messages: Option<usize>,
+
     /// Require this shared secret in the x-agentim-secret header for webhook requests
     #[arg(long)]
     pub webhook_secret: Option<String>,

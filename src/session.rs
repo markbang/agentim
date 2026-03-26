@@ -82,6 +82,13 @@ impl Session {
         self.messages.clear();
         self.updated_at = Utc::now();
     }
+
+    pub fn trim_history(&mut self, max_messages: usize) {
+        while self.messages.len() > max_messages {
+            self.messages.pop_front();
+        }
+        self.updated_at = Utc::now();
+    }
 }
 
 #[cfg(test)]

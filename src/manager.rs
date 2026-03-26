@@ -167,6 +167,12 @@ impl AgentIM {
         Ok(())
     }
 
+    pub fn trim_session_history(&self, session_id: &str, max_messages: usize) -> Result<()> {
+        let mut session = self.get_session(session_id)?;
+        session.trim_history(max_messages);
+        self.update_session(session_id, session)
+    }
+
     pub async fn handle_incoming_message(
         &self,
         agent_id: &str,
@@ -174,6 +180,26 @@ impl AgentIM {
         user_id: &str,
         reply_target: Option<&str>,
         user_message: String,
+    ) -> Result<String> {
+        self.handle_incoming_message_with_limit(
+            agent_id,
+            channel_id,
+            user_id,
+            reply_target,
+            user_message,
+            None,
+        )
+        .await
+    }
+
+    pub async fn handle_incoming_message_with_limit(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+        max_messages: Option<usize>,
     ) -> Result<String> {
         let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
 
@@ -186,6 +212,11 @@ impl AgentIM {
         }
 
         let response = self.send_to_agent(&session_id, user_message).await?;
+
+        if let Some(max_messages) = max_messages {
+            self.trim_session_history(&session_id, max_messages)?;
+        }
+
         self.send_to_channel(&session_id, response.clone()).await?;
         Ok(response)
     }

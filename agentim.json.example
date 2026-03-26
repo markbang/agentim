@@ -10,7 +10,7 @@
     },
     {
       "channel": "discord",
-      "user_id": "reviewer-42",
+      "reply_target": "review-room",
       "agent": "pi"
     }
   ],
@@ -21,6 +21,7 @@
   "qq_bot_id": "YOUR_QQ_BOT_ID",
   "qq_bot_token": "YOUR_QQ_BOT_TOKEN",
   "state_file": ".agentim/sessions.json",
+  "max_session_messages": 50,
   "webhook_secret": "change-me",
   "addr": "127.0.0.1:8080"
 }
