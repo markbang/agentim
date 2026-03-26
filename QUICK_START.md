@@ -11,6 +11,17 @@ cargo run -- \
   --addr 127.0.0.1:8080
 ```
 
+如果你希望不同平台走不同 agent：
+
+```bash
+cargo run -- \
+  --agent claude \
+  --telegram-agent pi \
+  --discord-agent codex \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --discord-token "$DISCORD_TOKEN"
+```
+
 Server 启动后会监听：
 - `POST /telegram`
 - `POST /discord`

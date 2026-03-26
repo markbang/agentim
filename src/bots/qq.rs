@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const QQ_CHANNEL_ID: &str = "qq-bot";
-pub const DEFAULT_AGENT_ID: &str = "default-agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QQMessage {
@@ -116,14 +115,18 @@ impl Channel for QQBotChannel {
     }
 }
 
-pub async fn qq_webhook_handler(agentim: Arc<AgentIM>, message: QQMessage) -> Result<()> {
+pub async fn qq_webhook_handler(
+    agentim: Arc<AgentIM>,
+    agent_id: &str,
+    message: QQMessage,
+) -> Result<()> {
     let user_id = message.author.id;
     let reply_target = message.channel_id;
     let content = message.content;
 
     agentim
         .handle_incoming_message(
-            DEFAULT_AGENT_ID,
+            agent_id,
             QQ_CHANNEL_ID,
             &user_id,
             Some(&reply_target),

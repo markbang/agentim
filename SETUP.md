@@ -5,11 +5,12 @@
 当前 `agentim` 二进制会：
 
 1. 选择一个默认 agent（`--agent`）
-2. 注册你提供凭证的 IM channel
-3. 启动 webhook server
-4. 对收到的消息自动创建/复用 session，并把回复发回原平台
+2. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
+3. 注册你提供凭证的 IM channel
+4. 启动 webhook server
+5. 对收到的消息自动创建/复用 session，并把回复发回原平台
 
-如果你需要更复杂的“多 agent 动态分流”，建议在库层基于 `AgentIM` 扩展。
+如果你需要更复杂的“按 workspace / 用户 / 规则动态分流”，建议在库层基于 `AgentIM` 扩展。
 
 ## 方式 1：直接命令行启动
 
@@ -70,6 +71,10 @@ AGENTIM_DRY_RUN=1 ./start.sh
 
 - `AGENTIM_AGENT`
 - `AGENTIM_ADDR`
+- `TELEGRAM_AGENT`
+- `DISCORD_AGENT`
+- `FEISHU_AGENT`
+- `QQ_AGENT`
 - `TELEGRAM_TOKEN`
 - `DISCORD_TOKEN`
 - `FEISHU_APP_ID`

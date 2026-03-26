@@ -11,6 +11,7 @@ mod manager;
 mod session;
 
 use agent::{ClaudeAgent, CodexAgent, PiAgent};
+use bot_server::BotServerConfig;
 use bots::{
     DiscordBotChannel, FeishuBotChannel, QQBotChannel, TelegramBotChannel, DISCORD_CHANNEL_ID,
     FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
@@ -33,6 +34,21 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
+fn build_agent(id: &str, agent_type: &str) -> anyhow::Result<Arc<dyn agent::Agent>> {
+    match agent_type {
+        "claude" => Ok(Arc::new(ClaudeAgent::new(id.to_string(), None))),
+        "codex" => Ok(Arc::new(CodexAgent::new(id.to_string(), None))),
+        "pi" => Ok(Arc::new(PiAgent::new(id.to_string()))),
+        other => Err(anyhow::anyhow!("Unknown agent type: {}", other)),
+    }
+}
+
+fn register_agent_variant(agentim: &AgentIM, id: &str, agent_type: &str) -> anyhow::Result<()> {
+    let agent = build_agent(id, agent_type)?;
+    agentim.register_agent(id.to_string(), agent)?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -40,18 +56,40 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let agentim = AgentIM::new();
 
-    // Register default agent
-    let agent: Arc<dyn agent::Agent> = match args.agent.as_str() {
-        "claude" => Arc::new(ClaudeAgent::new("default-agent".to_string(), None)),
-        "codex" => Arc::new(CodexAgent::new("default-agent".to_string(), None)),
-        "pi" => Arc::new(PiAgent::new("default-agent".to_string())),
-        _ => {
-            cli::print_error(&format!("Unknown agent type: {}", args.agent));
-            return Ok(());
-        }
+    register_agent_variant(&agentim, "default-agent", &args.agent)?;
+    cli::print_success(&format!("Default agent '{}' registered", args.agent));
+
+    let telegram_agent_id = if let Some(agent_type) = args.telegram_agent.as_deref() {
+        register_agent_variant(&agentim, "telegram-agent", agent_type)?;
+        cli::print_info(&format!("Telegram traffic -> {} agent", agent_type));
+        "telegram-agent".to_string()
+    } else {
+        "default-agent".to_string()
     };
-    agentim.register_agent("default-agent".to_string(), agent)?;
-    cli::print_success(&format!("Agent '{}' registered", args.agent));
+
+    let discord_agent_id = if let Some(agent_type) = args.discord_agent.as_deref() {
+        register_agent_variant(&agentim, "discord-agent", agent_type)?;
+        cli::print_info(&format!("Discord traffic -> {} agent", agent_type));
+        "discord-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let feishu_agent_id = if let Some(agent_type) = args.feishu_agent.as_deref() {
+        register_agent_variant(&agentim, "feishu-agent", agent_type)?;
+        cli::print_info(&format!("Feishu traffic -> {} agent", agent_type));
+        "feishu-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let qq_agent_id = if let Some(agent_type) = args.qq_agent.as_deref() {
+        register_agent_variant(&agentim, "qq-agent", agent_type)?;
+        cli::print_info(&format!("QQ traffic -> {} agent", agent_type));
+        "qq-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
 
     if let Some(token) = args.telegram_token {
         cli::print_info("Initializing Telegram Bot...");
@@ -77,7 +115,9 @@ async fn main() -> anyhow::Result<()> {
 
     let feishu_credentials = match (args.feishu_app_id, args.feishu_app_secret, args.feishu_token) {
         (Some(app_id), Some(app_secret), _) => Some((app_id, app_secret)),
-        (None, None, Some(compound)) => Some(parse_compound_credentials(&compound, "--feishu-token")?),
+        (None, None, Some(compound)) => {
+            Some(parse_compound_credentials(&compound, "--feishu-token")?)
+        }
         (Some(_), None, _) | (None, Some(_), _) => {
             cli::print_error("Feishu requires both --feishu-app-id and --feishu-app-secret");
             return Ok(());
@@ -128,7 +168,14 @@ async fn main() -> anyhow::Result<()> {
     cli::print_info(&format!("Starting Bot server on {}", args.addr));
     cli::print_info("Waiting for incoming messages...");
 
-    bot_server::start_bot_server(Arc::new(agentim), &args.addr).await?;
+    let server_config = BotServerConfig {
+        telegram_agent_id,
+        discord_agent_id,
+        feishu_agent_id,
+        qq_agent_id,
+    };
+
+    bot_server::start_bot_server(Arc::new(agentim), server_config, &args.addr).await?;
 
     Ok(())
 }

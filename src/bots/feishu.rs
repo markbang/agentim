@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const FEISHU_CHANNEL_ID: &str = "feishu-bot";
-pub const DEFAULT_AGENT_ID: &str = "default-agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeishuMessage {
@@ -144,13 +143,17 @@ impl Channel for FeishuBotChannel {
     }
 }
 
-pub async fn feishu_webhook_handler(agentim: Arc<AgentIM>, message: FeishuMessage) -> Result<()> {
+pub async fn feishu_webhook_handler(
+    agentim: Arc<AgentIM>,
+    agent_id: &str,
+    message: FeishuMessage,
+) -> Result<()> {
     let user_id = message.event.message.sender_id.user_id;
     let content = message.event.message.content;
 
     agentim
         .handle_incoming_message(
-            DEFAULT_AGENT_ID,
+            agent_id,
             FEISHU_CHANNEL_ID,
             &user_id,
             Some(&user_id),

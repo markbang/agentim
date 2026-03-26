@@ -1,5 +1,5 @@
 use agentim::agent::Agent;
-use agentim::bot_server::create_bot_router;
+use agentim::bot_server::{create_bot_router, create_bot_router_with_config, BotServerConfig};
 use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID};
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
@@ -14,7 +14,10 @@ use axum::{
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
-struct ReviewAgent;
+struct ReviewAgent {
+    id: String,
+    label: String,
+}
 
 #[async_trait]
 impl Agent for ReviewAgent {
@@ -23,12 +26,12 @@ impl Agent for ReviewAgent {
     }
 
     fn id(&self) -> &str {
-        "default-agent"
+        &self.id
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
         let last = messages.last().map(|msg| msg.content.clone()).unwrap_or_default();
-        Ok(format!("reviewed:{}", last))
+        Ok(format!("{}:{}", self.label, last))
     }
 
     async fn health_check(&self) -> Result<()> {
@@ -70,11 +73,39 @@ impl Channel for ReviewChannel {
     }
 }
 
+fn register_review_agent(agentim: &Arc<AgentIM>, id: &str, label: &str) {
+    agentim
+        .register_agent(
+            id.to_string(),
+            Arc::new(ReviewAgent {
+                id: id.to_string(),
+                label: label.to_string(),
+            }),
+        )
+        .unwrap();
+}
+
+fn register_review_channel(
+    agentim: &Arc<AgentIM>,
+    sent_messages: Arc<Mutex<Vec<(String, String, String)>>>,
+    id: &str,
+    channel_type: ChannelType,
+) {
+    agentim
+        .register_channel(
+            id.to_string(),
+            Arc::new(ReviewChannel {
+                id: id.to_string(),
+                sent_messages,
+                channel_type,
+            }),
+        )
+        .unwrap();
+}
+
 fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> Arc<AgentIM> {
     let agentim = Arc::new(AgentIM::new());
-    agentim
-        .register_agent("default-agent".to_string(), Arc::new(ReviewAgent))
-        .unwrap();
+    register_review_agent(&agentim, "default-agent", "default");
 
     for (id, channel_type) in [
         (TELEGRAM_CHANNEL_ID, ChannelType::Telegram),
@@ -82,16 +113,7 @@ fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> A
         (FEISHU_CHANNEL_ID, ChannelType::Feishu),
         (QQ_CHANNEL_ID, ChannelType::QQ),
     ] {
-        agentim
-            .register_channel(
-                id.to_string(),
-                Arc::new(ReviewChannel {
-                    id: id.to_string(),
-                    sent_messages: sent_messages.clone(),
-                    channel_type,
-                }),
-            )
-            .unwrap();
+        register_review_channel(&agentim, sent_messages.clone(), id, channel_type);
     }
 
     agentim
@@ -193,12 +215,12 @@ async fn readiness_reviewer_tracks_reply_targets_for_channel_based_platforms() {
     assert!(sent.contains(&(
         DISCORD_CHANNEL_ID.to_string(),
         "discord-channel".to_string(),
-        "reviewed:ping discord".to_string(),
+        "default:ping discord".to_string(),
     )));
     assert!(sent.contains(&(
         QQ_CHANNEL_ID.to_string(),
         "qq-channel".to_string(),
-        "reviewed:ping qq".to_string(),
+        "default:ping qq".to_string(),
     )));
 }
 
@@ -231,4 +253,75 @@ async fn usability_reviewer_reuses_session_per_user_and_channel() {
     let sessions = agentim.list_sessions();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].messages.len(), 4);
+}
+
+#[tokio::test]
+async fn functionality_reviewer_routes_channels_to_configured_agents() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+
+    register_review_agent(&agentim, "default-agent", "default");
+    register_review_agent(&agentim, "telegram-agent", "telegram");
+    register_review_agent(&agentim, "discord-agent", "discord");
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        DISCORD_CHANNEL_ID,
+        ChannelType::Discord,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            telegram_agent_id: "telegram-agent".to_string(),
+            discord_agent_id: "discord-agent".to_string(),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let telegram = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":2,"message":{"message_id":20,"chat":{"id":456},"text":"channel specific telegram"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(telegram.status(), StatusCode::OK);
+
+    let discord = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"id":"m3","author":{"id":"user-2","username":"discorder2"},"content":"channel specific discord","channel_id":"discord-room"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(discord.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "456".to_string(),
+        "telegram:channel specific telegram".to_string(),
+    )));
+    assert!(sent.contains(&(
+        DISCORD_CHANNEL_ID.to_string(),
+        "discord-room".to_string(),
+        "discord:channel specific discord".to_string(),
+    )));
 }

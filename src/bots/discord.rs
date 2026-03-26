@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const DISCORD_CHANNEL_ID: &str = "discord-bot";
-pub const DEFAULT_AGENT_ID: &str = "default-agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscordMessage {
@@ -110,14 +109,18 @@ impl Channel for DiscordBotChannel {
     }
 }
 
-pub async fn discord_webhook_handler(agentim: Arc<AgentIM>, message: DiscordMessage) -> Result<()> {
+pub async fn discord_webhook_handler(
+    agentim: Arc<AgentIM>,
+    agent_id: &str,
+    message: DiscordMessage,
+) -> Result<()> {
     let user_id = message.author.id;
     let reply_target = message.channel_id;
     let content = message.content;
 
     agentim
         .handle_incoming_message(
-            DEFAULT_AGENT_ID,
+            agent_id,
             DISCORD_CHANNEL_ID,
             &user_id,
             Some(&reply_target),

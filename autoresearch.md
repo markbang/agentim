@@ -79,3 +79,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Extended startup wiring so Discord/Feishu/QQ channels can be initialized coherently, with explicit credential flags plus backward-compatible compound-token fallbacks for Feishu/QQ.
 - Replaced the broken legacy `start.sh` flow with an environment-driven startup wrapper plus `AGENTIM_DRY_RUN=1` validation path.
 - Rewrote the main user docs (`README.md`, `QUICK_START.md`, `SETUP.md`, `BOT_INTEGRATION.md`) so they describe the real single-command runtime, current webhook routes, and the built-in review/eval loop.
+- Added per-platform agent routing for the binary via `BotServerConfig` and new CLI/startup overrides (`--telegram-agent`, `--discord-agent`, `--feishu-agent`, `--qq-agent`).
+- Added executable reviewer coverage proving that different webhook routes can be mapped to different registered agents and return different responses.

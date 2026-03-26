@@ -7,7 +7,7 @@
 1. **库能力**：`AgentIM` 提供 agent/channel/session 抽象，适合二次开发。
 2. **可运行二进制**：`agentim` 启动一个 webhook server，把收到的 IM 消息转给一个默认 agent，再把回复发回对应平台。
 
-> 当前二进制选择一个默认 agent（`--agent claude|codex|pi`）来处理所有进入的消息；如果你需要“同时挂多个不同 agent 并按规则分流”，现在更适合直接用库层扩展。
+> 当前二进制会注册一个默认 agent（`--agent`），并允许你按平台覆盖：`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`。如果你需要更复杂的“按 workspace / 用户 / 规则动态分流”，现在仍然更适合直接用库层扩展。
 
 ## 当前支持
 
@@ -25,6 +25,7 @@
 ## 关键特性
 
 - 多平台 webhook 接入
+- 默认 agent + 按平台 agent override
 - 统一 `Agent` / `Channel` trait
 - 自动 session 创建与复用
 - 会话级 `reply_target` 管理
@@ -44,11 +45,13 @@ cargo run -- \
   --addr 127.0.0.1:8080
 ```
 
-也可以同时启用多个平台：
+也可以同时启用多个平台，并给不同平台绑定不同 agent：
 
 ```bash
 cargo run -- \
   --agent claude \
+  --telegram-agent pi \
+  --discord-agent codex \
   --telegram-token "$TELEGRAM_TOKEN" \
   --discord-token "$DISCORD_TOKEN" \
   --feishu-app-id "$FEISHU_APP_ID" \

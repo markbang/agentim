@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const TELEGRAM_CHANNEL_ID: &str = "telegram-bot";
-pub const DEFAULT_AGENT_ID: &str = "default-agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramUpdate {
@@ -124,13 +123,17 @@ impl Channel for TelegramBotChannel {
     }
 }
 
-pub async fn telegram_webhook_handler(agentim: Arc<AgentIM>, update: TelegramUpdate) -> Result<()> {
+pub async fn telegram_webhook_handler(
+    agentim: Arc<AgentIM>,
+    agent_id: &str,
+    update: TelegramUpdate,
+) -> Result<()> {
     if let Some(message) = update.message {
         if let Some(text) = message.text {
             let user_id = message.chat.id.to_string();
             agentim
                 .handle_incoming_message(
-                    DEFAULT_AGENT_ID,
+                    agent_id,
                     TELEGRAM_CHANNEL_ID,
                     &user_id,
                     Some(&user_id),

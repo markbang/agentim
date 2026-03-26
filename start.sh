@@ -9,6 +9,11 @@ DRY_RUN="${AGENTIM_DRY_RUN:-0}"
 
 args=(--agent "$AGENT" --addr "$ADDR")
 
+[[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
+[[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
+[[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
+[[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
+
 if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
   args+=(--telegram-token "$TELEGRAM_TOKEN")
 fi

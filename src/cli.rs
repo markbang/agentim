@@ -37,9 +37,25 @@ pub struct Args {
     #[arg(long)]
     pub qq_bot_token: Option<String>,
 
-    /// Agent type to use (claude, codex, pi) - default: claude
+    /// Default agent type to use (claude, codex, pi) when no channel-specific override is set
     #[arg(long, default_value = "claude")]
     pub agent: String,
+
+    /// Agent override for Telegram traffic
+    #[arg(long)]
+    pub telegram_agent: Option<String>,
+
+    /// Agent override for Discord traffic
+    #[arg(long)]
+    pub discord_agent: Option<String>,
+
+    /// Agent override for Feishu traffic
+    #[arg(long)]
+    pub feishu_agent: Option<String>,
+
+    /// Agent override for QQ traffic
+    #[arg(long)]
+    pub qq_agent: Option<String>,
 
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long, default_value = "127.0.0.1:8080")]
