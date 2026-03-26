@@ -11,7 +11,7 @@ mod manager;
 mod session;
 
 use agent::{ClaudeAgent, CodexAgent, PiAgent};
-use bot_server::BotServerConfig;
+use bot_server::{BotServerConfig, RoutingRule};
 use bots::{
     DiscordBotChannel, FeishuBotChannel, QQBotChannel, TelegramBotChannel, DISCORD_CHANNEL_ID,
     FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
@@ -21,7 +21,14 @@ use clap::Parser;
 use cli::Args;
 use manager::AgentIM;
 use serde::Deserialize;
-use std::{fs, sync::Arc};
+use std::{collections::HashMap, fs, sync::Arc};
+
+#[derive(Debug, Clone, Deserialize)]
+struct RuntimeRoutingRuleConfig {
+    channel: Option<String>,
+    user_id: Option<String>,
+    agent: String,
+}
 
 #[derive(Debug, Default, Deserialize)]
 struct RuntimeConfig {
@@ -30,6 +37,8 @@ struct RuntimeConfig {
     discord_agent: Option<String>,
     feishu_agent: Option<String>,
     qq_agent: Option<String>,
+    #[serde(default)]
+    routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
     discord_token: Option<String>,
     feishu_token: Option<String>,
@@ -82,6 +91,21 @@ fn register_agent_variant(agentim: &AgentIM, id: &str, agent_type: &str) -> anyh
     let agent = build_agent(id, agent_type)?;
     agentim.register_agent(id.to_string(), agent)?;
     Ok(())
+}
+
+fn ensure_rule_agent(
+    agentim: &AgentIM,
+    registered_rule_agents: &mut HashMap<String, String>,
+    agent_type: &str,
+) -> anyhow::Result<String> {
+    if let Some(agent_id) = registered_rule_agents.get(agent_type) {
+        return Ok(agent_id.clone());
+    }
+
+    let agent_id = format!("rule-agent-{}", agent_type);
+    register_agent_variant(agentim, &agent_id, agent_type)?;
+    registered_rule_agents.insert(agent_type.to_string(), agent_id.clone());
+    Ok(agent_id)
 }
 
 #[tokio::main]
@@ -146,6 +170,24 @@ async fn main() -> anyhow::Result<()> {
     } else {
         "default-agent".to_string()
     };
+
+    let mut registered_rule_agents = HashMap::new();
+    let routing_rules = runtime_config
+        .routing_rules
+        .into_iter()
+        .map(|rule| {
+            let agent_id = ensure_rule_agent(&agentim, &mut registered_rule_agents, &rule.agent)?;
+            Ok(RoutingRule {
+                channel: rule.channel,
+                user_id: rule.user_id,
+                agent_id,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    if !routing_rules.is_empty() {
+        cli::print_info(&format!("Loaded {} routing rule(s)", routing_rules.len()));
+    }
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
@@ -239,6 +281,7 @@ async fn main() -> anyhow::Result<()> {
         discord_agent_id,
         feishu_agent_id,
         qq_agent_id,
+        routing_rules,
         state_file,
         webhook_secret,
     };

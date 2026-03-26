@@ -6,11 +6,12 @@
 
 1. 选择一个默认 agent（`--agent`）
 2. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
-3. 注册你提供凭证的 IM channel
-4. 启动 webhook server
-5. 对收到的消息自动创建/复用 session，并把回复发回原平台
+3. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
+4. 注册你提供凭证的 IM channel
+5. 启动 webhook server
+6. 对收到的消息自动创建/复用 session，并把回复发回原平台
 
-如果你需要更复杂的“按 workspace / 用户 / 规则动态分流”，建议在库层基于 `AgentIM` 扩展。
+如果你需要更复杂的 workspace / 组织级策略路由，建议在库层基于 `AgentIM` 扩展。
 
 ## 方式 1：直接命令行启动
 
@@ -89,6 +90,25 @@ AGENTIM_DRY_RUN=1 ./start.sh
 兼容旧变量：
 - `FEISHU_TOKEN=app_id:app_secret`
 - `QQ_TOKEN=bot_id:bot_token`
+
+## JSON 配置里的用户级路由规则
+
+示例：
+
+```json
+{
+  "agent": "claude",
+  "telegram_agent": "codex",
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"}
+  ]
+}
+```
+
+优先级：
+1. `routing_rules` 命中
+2. 平台级 agent override
+3. 默认 `agent`
 
 ## Webhook 路由
 

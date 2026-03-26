@@ -93,3 +93,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Replaced the stale `agentim.json.example` with a config schema that matches the actual runtime and added reviewer coverage proving config-driven startup works.
 - Hardened session snapshot persistence by writing through a sibling temp file and renaming it into place instead of writing snapshots directly over the target path.
 - Added reviewer coverage for clean snapshot persistence so runtime saves leave a valid JSON file without lingering temp artifacts.
+- Added config-driven `routing_rules` so the binary can override platform-level routing for specific users without requiring code changes.
+- Exposed resolved routing rules through `/reviewz`, updated the runtime docs/examples, and added reviewer coverage proving user-level rules override the platform default route.

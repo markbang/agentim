@@ -1,5 +1,7 @@
 use agentim::agent::Agent;
-use agentim::bot_server::{create_bot_router, create_bot_router_with_config, BotServerConfig};
+use agentim::bot_server::{
+    create_bot_router, create_bot_router_with_config, BotServerConfig, RoutingRule,
+};
 use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID};
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
@@ -340,6 +342,75 @@ async fn functionality_reviewer_routes_channels_to_configured_agents() {
 }
 
 #[tokio::test]
+async fn routing_reviewer_overrides_platform_route_for_matching_user() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+
+    register_review_agent(&agentim, "default-agent", "default");
+    register_review_agent(&agentim, "telegram-agent", "telegram");
+    register_review_agent(&agentim, "rule-agent-pi", "vip");
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            telegram_agent_id: "telegram-agent".to_string(),
+            routing_rules: vec![RoutingRule {
+                channel: Some("telegram".to_string()),
+                user_id: Some("999".to_string()),
+                agent_id: "rule-agent-pi".to_string(),
+            }],
+            ..BotServerConfig::default()
+        },
+    );
+
+    let vip = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":3,"message":{"message_id":30,"chat":{"id":999},"text":"vip route"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(vip.status(), StatusCode::OK);
+
+    let normal = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":4,"message":{"message_id":40,"chat":{"id":555},"text":"normal route"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(normal.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "999".to_string(),
+        "vip:vip route".to_string(),
+    )));
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "555".to_string(),
+        "telegram:normal route".to_string(),
+    )));
+}
+
+#[tokio::test]
 async fn readiness_reviewer_persists_sessions_between_restarts() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
@@ -567,6 +638,9 @@ fn usability_reviewer_loads_runtime_config_file() {
     let config = r#"{
   "agent": "codex",
   "telegram_agent": "pi",
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "agent": "claude"}
+  ],
   "state_file": ".agentim/test-sessions.json",
   "webhook_secret": "cfg-secret",
   "addr": "127.0.0.1:9090"
@@ -582,6 +656,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Default agent 'codex' registered"));
     assert!(stdout.contains("Telegram traffic -> pi agent"));
+    assert!(stdout.contains("Loaded 1 routing rule"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);

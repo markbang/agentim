@@ -2,6 +2,18 @@
   "agent": "claude",
   "telegram_agent": "pi",
   "discord_agent": "codex",
+  "routing_rules": [
+    {
+      "channel": "telegram",
+      "user_id": "vip-user",
+      "agent": "claude"
+    },
+    {
+      "channel": "discord",
+      "user_id": "reviewer-42",
+      "agent": "pi"
+    }
+  ],
   "telegram_token": "YOUR_TELEGRAM_TOKEN",
   "discord_token": "YOUR_DISCORD_TOKEN",
   "feishu_app_id": "YOUR_FEISHU_APP_ID",

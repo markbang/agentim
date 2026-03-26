@@ -40,6 +40,16 @@ export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```
 
+如果你要把某个用户路由到特殊 agent，在 `agentim.json` 里加：
+
+```json
+{
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"}
+  ]
+}
+```
+
 先 review 一下启动参数：
 
 ```bash

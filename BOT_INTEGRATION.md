@@ -2,7 +2,7 @@
 
 ## 概述
 
-AgentIM 当前通过一个统一的 webhook server 接入各 IM 平台，并把收到的消息桥接到默认 agent；也可以按平台覆盖 agent。
+AgentIM 当前通过一个统一的 webhook server 接入各 IM 平台，并把收到的消息桥接到默认 agent；也可以按平台覆盖 agent，或者通过 `routing_rules` 对特定用户做更细粒度路由。
 
 统一桥接步骤：
 
@@ -74,6 +74,17 @@ AGENTIM_DRY_RUN=1 ./start.sh
 ```bash
 export AGENTIM_WEBHOOK_SECRET=change-me
 # 所有 webhook 请求都需要 x-agentim-secret: change-me
+```
+
+如果需要把某个用户路由到特殊 agent，可以在 `agentim.json` 中配置：
+
+```json
+{
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
+    {"channel": "discord", "user_id": "reviewer-42", "agent": "codex"}
+  ]
+}
 ```
 
 ## 平台说明

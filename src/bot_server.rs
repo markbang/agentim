@@ -12,14 +12,39 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 
+#[derive(Clone, Debug, Serialize)]
+pub struct RoutingRule {
+    pub channel: Option<String>,
+    pub user_id: Option<String>,
+    pub agent_id: String,
+}
+
+impl RoutingRule {
+    fn matches(&self, channel: &str, user_id: &str) -> bool {
+        self.channel.as_deref().map(|value| value == channel).unwrap_or(true)
+            && self.user_id.as_deref().map(|value| value == user_id).unwrap_or(true)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BotServerConfig {
     pub telegram_agent_id: String,
     pub discord_agent_id: String,
     pub feishu_agent_id: String,
     pub qq_agent_id: String,
+    pub routing_rules: Vec<RoutingRule>,
     pub state_file: Option<String>,
     pub webhook_secret: Option<String>,
+}
+
+impl BotServerConfig {
+    fn resolve_agent<'a>(&'a self, channel: &str, user_id: &str, fallback: &'a str) -> &'a str {
+        self.routing_rules
+            .iter()
+            .find(|rule| rule.matches(channel, user_id))
+            .map(|rule| rule.agent_id.as_str())
+            .unwrap_or(fallback)
+    }
 }
 
 impl Default for BotServerConfig {
@@ -29,6 +54,7 @@ impl Default for BotServerConfig {
             discord_agent_id: "default-agent".to_string(),
             feishu_agent_id: "default-agent".to_string(),
             qq_agent_id: "default-agent".to_string(),
+            routing_rules: Vec::new(),
             state_file: None,
             webhook_secret: None,
         }
@@ -55,6 +81,7 @@ struct ReviewResponse {
     channels: Vec<String>,
     sessions: usize,
     platform_agents: PlatformAgents,
+    routing_rules: Vec<RoutingRule>,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
 }
@@ -92,7 +119,10 @@ fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCode, Json<HealthResponse>) {
+async fn healthz(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<HealthResponse>) {
     if authorize(&headers, &state).is_err() {
         return (
             StatusCode::UNAUTHORIZED,
@@ -116,7 +146,10 @@ async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCo
     )
 }
 
-async fn reviewz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCode, Json<ReviewResponse>) {
+async fn reviewz(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<ReviewResponse>) {
     if authorize(&headers, &state).is_err() {
         return (
             StatusCode::UNAUTHORIZED,
@@ -130,6 +163,7 @@ async fn reviewz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCo
                     feishu: String::new(),
                     qq: String::new(),
                 },
+                routing_rules: Vec::new(),
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
             }),
@@ -148,6 +182,7 @@ async fn reviewz(State(state): State<AppState>, headers: HeaderMap) -> (StatusCo
                 feishu: state.config.feishu_agent_id.clone(),
                 qq: state.config.qq_agent_id.clone(),
             },
+            routing_rules: state.config.routing_rules.clone(),
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
         }),
@@ -163,13 +198,19 @@ async fn telegram_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
 
-    match telegram_webhook_handler(
-        state.agentim.clone(),
-        state.config.telegram_agent_id.as_str(),
-        update,
-    )
-    .await
-    {
+    let agent_id = update
+        .message
+        .as_ref()
+        .map(|message| {
+            let user_id = message.chat.id.to_string();
+            state
+                .config
+                .resolve_agent("telegram", &user_id, state.config.telegram_agent_id.as_str())
+                .to_string()
+        })
+        .unwrap_or_else(|| state.config.telegram_agent_id.clone());
+
+    match telegram_webhook_handler(state.agentim.clone(), &agent_id, update).await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -190,13 +231,16 @@ async fn discord_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
 
-    match discord_webhook_handler(
-        state.agentim.clone(),
-        state.config.discord_agent_id.as_str(),
-        message,
-    )
-    .await
-    {
+    let agent_id = state
+        .config
+        .resolve_agent(
+            "discord",
+            &message.author.id,
+            state.config.discord_agent_id.as_str(),
+        )
+        .to_string();
+
+    match discord_webhook_handler(state.agentim.clone(), &agent_id, message).await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -217,13 +261,16 @@ async fn feishu_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
 
-    match feishu_webhook_handler(
-        state.agentim.clone(),
-        state.config.feishu_agent_id.as_str(),
-        message,
-    )
-    .await
-    {
+    let agent_id = state
+        .config
+        .resolve_agent(
+            "feishu",
+            &message.event.message.sender_id.user_id,
+            state.config.feishu_agent_id.as_str(),
+        )
+        .to_string();
+
+    match feishu_webhook_handler(state.agentim.clone(), &agent_id, message).await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
@@ -244,13 +291,12 @@ async fn qq_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
 
-    match qq_webhook_handler(
-        state.agentim.clone(),
-        state.config.qq_agent_id.as_str(),
-        message,
-    )
-    .await
-    {
+    let agent_id = state
+        .config
+        .resolve_agent("qq", &message.author.id, state.config.qq_agent_id.as_str())
+        .to_string();
+
+    match qq_webhook_handler(state.agentim.clone(), &agent_id, message).await {
         Ok(_) => match persist_if_configured(&state) {
             Ok(_) => (StatusCode::OK, "ok".to_string()),
             Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
