@@ -1,3 +1,3 @@
 - Extend `routing_rules` from exact/prefix/priority matching to even richer policy routing only if needed (workspace/team patterns or regex), but avoid turning startup config into a DSL too early.
 - Add more platform-native verification adapters where practical (Telegram secret token now exists; next candidates are Discord/Feishu/QQ native signature schemes).
-- Build on the current bounded-history behavior with better summary/retention strategies (summary compaction, snapshot rotation, maybe role-aware summary updates), since trimmed context is now summarized but still fairly naive.
+- Build on the current bounded-history behavior with better summary/retention strategies (higher-quality summary compaction or periodic snapshot summaries), since snapshot rotation and deterministic summaries now exist but remain fairly naive.

@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --max-session-messages --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
+  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --state-backup-count --max-session-messages --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -134,6 +134,15 @@ cargo test --quiet --test review_bridge persistence_reviewer_writes_clean_snapsh
 persistence_clean_test_status=$?
 set -e
 if [ "$persistence_clean_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge persistence_reviewer_rotates_snapshot_backups \
+  >/tmp/agentim-persistence-rotation-test.out 2>/tmp/agentim-persistence-rotation-test.err
+persistence_rotation_test_status=$?
+set -e
+if [ "$persistence_rotation_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -339,6 +348,12 @@ if [ "$persistence_clean_test_status" -ne 0 ]; then
   echo '--- persistence clean-snapshot review test tail ---'
   tail -20 /tmp/agentim-persistence-clean-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-persistence-clean-test.out 2>/dev/null || true
+fi
+
+if [ "$persistence_rotation_test_status" -ne 0 ]; then
+  echo '--- persistence rotation review test tail ---'
+  tail -20 /tmp/agentim-persistence-rotation-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-persistence-rotation-test.out 2>/dev/null || true
 fi
 
 if [ "$security_test_status" -ne 0 ]; then

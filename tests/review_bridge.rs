@@ -903,6 +903,52 @@ async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
 }
 
 #[tokio::test]
+async fn persistence_reviewer_rotates_snapshot_backups() {
+    let state_file = temp_state_file();
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            state_file: Some(state_file.clone()),
+            state_backup_count: 2,
+            ..BotServerConfig::default()
+        },
+    );
+
+    for (update_id, text) in [(24, "backup one"), (25, "backup two"), (26, "backup three")] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/telegram")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        "{{\"update_id\":{},\"message\":{{\"message_id\":{},\"chat\":{{\"id\":4040}},\"text\":\"{}\"}}}}",
+                        update_id,
+                        update_id * 10,
+                        text
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let backup_1 = format!("{}.bak.1", state_file);
+    let backup_2 = format!("{}.bak.2", state_file);
+    assert!(std::path::Path::new(&state_file).exists());
+    assert!(std::path::Path::new(&backup_1).exists());
+    assert!(std::path::Path::new(&backup_2).exists());
+    assert!(serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&backup_1).unwrap()).is_ok());
+    assert!(serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&backup_2).unwrap()).is_ok());
+
+    let _ = std::fs::remove_file(state_file);
+    let _ = std::fs::remove_file(backup_1);
+    let _ = std::fs::remove_file(backup_2);
+}
+
+#[tokio::test]
 async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1105,6 +1151,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             telegram_agent_id: "default-agent".to_string(),
             max_session_messages: Some(6),
             state_file: Some("/tmp/agentim-status.json".to_string()),
+            state_backup_count: 2,
             webhook_secret: Some("inspect".to_string()),
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
@@ -1145,6 +1192,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["sessions"], 1);
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
     assert_eq!(review_json["max_session_messages"], 6);
+    assert_eq!(review_json["state_backup_count"], 2);
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
     assert_eq!(review_json["webhook_signing_enabled"], true);
@@ -1186,6 +1234,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     {"channel": "discord", "reply_target_prefix": "review-", "agent": "pi"}
   ],
   "state_file": ".agentim/test-sessions.json",
+  "state_backup_count": 2,
   "max_session_messages": 4,
   "webhook_secret": "cfg-secret",
   "webhook_signing_secret": "cfg-sign",
@@ -1205,6 +1254,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Default agent 'codex' registered"));
     assert!(stdout.contains("Telegram traffic -> pi agent"));
     assert!(stdout.contains("Loaded 2 routing rule"));
+    assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Telegram native webhook secret token enabled"));

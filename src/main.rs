@@ -53,6 +53,7 @@ struct RuntimeConfig {
     qq_bot_id: Option<String>,
     qq_bot_token: Option<String>,
     state_file: Option<String>,
+    state_backup_count: Option<usize>,
     max_session_messages: Option<usize>,
     webhook_secret: Option<String>,
     webhook_signing_secret: Option<String>,
@@ -144,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
     let qq_bot_id = merge_option(args.qq_bot_id, runtime_config.qq_bot_id);
     let qq_bot_token = merge_option(args.qq_bot_token, runtime_config.qq_bot_token);
     let state_file = merge_option(args.state_file, runtime_config.state_file);
+    let state_backup_count = args
+        .state_backup_count
+        .or(runtime_config.state_backup_count)
+        .unwrap_or(0);
     let max_session_messages = args.max_session_messages.or(runtime_config.max_session_messages);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let webhook_signing_secret = merge_option(
@@ -291,6 +296,12 @@ async fn main() -> anyhow::Result<()> {
     if let Some(path) = state_file.as_deref() {
         let restored = agentim.load_sessions_from_path(path)?;
         cli::print_info(&format!("Restored {} sessions from {}", restored, path));
+        if state_backup_count > 0 {
+            cli::print_info(&format!(
+                "State snapshot rotation enabled ({} backup file(s))",
+                state_backup_count
+            ));
+        }
     }
 
     if let Some(max_session_messages) = max_session_messages {
@@ -327,6 +338,7 @@ async fn main() -> anyhow::Result<()> {
         routing_rules,
         max_session_messages,
         state_file,
+        state_backup_count,
         webhook_secret,
         webhook_signing_secret,
         webhook_max_skew_seconds,

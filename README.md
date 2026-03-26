@@ -85,6 +85,7 @@ export TELEGRAM_TOKEN=your-token
 
 ```bash
 export AGENTIM_STATE_FILE=.agentim/sessions.json
+export AGENTIM_STATE_BACKUP_COUNT=2
 export AGENTIM_MAX_SESSION_MESSAGES=50
 ```
 

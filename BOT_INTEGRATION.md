@@ -92,10 +92,11 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # 请求需要带 x-telegram-bot-api-secret-token: tg-native-secret
 ```
 
-如果你希望 session 历史不会无限增长：
+如果你希望 session 历史不会无限增长，并保留最近几个状态快照：
 
 ```bash
 export AGENTIM_MAX_SESSION_MESSAGES=50
+export AGENTIM_STATE_BACKUP_COUNT=2
 ```
 
 如果需要把某个用户、某个回复目标，或者某类回复目标前缀路由到特殊 agent，可以在 `agentim.json` 中配置：

@@ -73,6 +73,10 @@ pub struct Args {
     #[arg(long)]
     pub state_file: Option<String>,
 
+    /// Keep this many rotated backup snapshots alongside the state file
+    #[arg(long)]
+    pub state_backup_count: Option<usize>,
+
     /// Trim session history to this many messages after each webhook round-trip
     #[arg(long)]
     pub max_session_messages: Option<usize>,

@@ -74,6 +74,7 @@ pub struct BotServerConfig {
     pub routing_rules: Vec<RoutingRule>,
     pub max_session_messages: Option<usize>,
     pub state_file: Option<String>,
+    pub state_backup_count: usize,
     pub webhook_secret: Option<String>,
     pub webhook_signing_secret: Option<String>,
     pub webhook_max_skew_seconds: i64,
@@ -107,6 +108,7 @@ impl Default for BotServerConfig {
             routing_rules: Vec::new(),
             max_session_messages: None,
             state_file: None,
+            state_backup_count: 0,
             webhook_secret: None,
             webhook_signing_secret: None,
             webhook_max_skew_seconds: 300,
@@ -138,6 +140,7 @@ struct ReviewResponse {
     platform_agents: PlatformAgents,
     routing_rules: Vec<RoutingRule>,
     max_session_messages: Option<usize>,
+    state_backup_count: usize,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
     webhook_signing_enabled: bool,
@@ -157,7 +160,7 @@ fn persist_if_configured(state: &AppState) -> Result<(), String> {
     if let Some(path) = state.config.state_file.as_deref() {
         state
             .agentim
-            .save_sessions_to_path(path)
+            .save_sessions_to_path_with_rotation(path, state.config.state_backup_count)
             .map_err(|err| err.to_string())?;
     }
 
@@ -310,6 +313,7 @@ async fn reviewz(
                 },
                 routing_rules: Vec::new(),
                 max_session_messages: None,
+                state_backup_count: 0,
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
                 webhook_signing_enabled: false,
@@ -333,6 +337,7 @@ async fn reviewz(
             },
             routing_rules: state.config.routing_rules.clone(),
             max_session_messages: state.config.max_session_messages,
+            state_backup_count: state.config.state_backup_count,
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
             webhook_signing_enabled: state.config.webhook_signing_secret.is_some(),

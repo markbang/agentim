@@ -109,3 +109,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer/unit coverage proving bounded-history mode still trims normal chat sessions while protecting an injected system prompt from being discarded too early.
 - Added deterministic `history_summary` metadata generation for trimmed-away non-system turns, and exposed that summary back to the agent as a synthetic leading `System` context message.
 - Added reviewer/unit coverage proving bounded-history sessions now keep a compact summary of earlier turns instead of losing all trimmed context outright.
+- Added `state_backup_count` / `--state-backup-count` so persisted session snapshots can rotate through backup files instead of keeping only the latest state.
+- Updated runtime/docs/examples and reviewer coverage so rotated backup snapshots are preserved as valid JSON while `/reviewz` reports the configured backup depth.

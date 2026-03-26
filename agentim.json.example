@@ -24,6 +24,7 @@
   "qq_bot_id": "YOUR_QQ_BOT_ID",
   "qq_bot_token": "YOUR_QQ_BOT_TOKEN",
   "state_file": ".agentim/sessions.json",
+  "state_backup_count": 2,
   "max_session_messages": 50,
   "webhook_secret": "change-me",
   "webhook_signing_secret": "change-me-signing",

@@ -94,6 +94,10 @@ impl AgentIM {
     }
 
     pub fn save_sessions_to_path(&self, path: &str) -> Result<()> {
+        self.save_sessions_to_path_with_rotation(path, 0)
+    }
+
+    pub fn save_sessions_to_path_with_rotation(&self, path: &str, backup_count: usize) -> Result<()> {
         let sessions = self.list_sessions();
         let content = serde_json::to_string_pretty(&sessions)?;
         let path = std::path::Path::new(path);
@@ -104,10 +108,33 @@ impl AgentIM {
             }
         }
 
-        let temp_path = path.with_extension(format!(
-            "{}.tmp",
-            std::process::id()
-        ));
+        if backup_count > 0 && path.exists() {
+            let backup_path = |index: usize| {
+                let file_name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "sessions".to_string());
+                path.with_file_name(format!("{}.bak.{}", file_name, index))
+            };
+
+            for index in (1..=backup_count).rev() {
+                let from = if index == 1 {
+                    path.to_path_buf()
+                } else {
+                    backup_path(index - 1)
+                };
+                let to = backup_path(index);
+
+                if from.exists() {
+                    if to.exists() {
+                        std::fs::remove_file(&to)?;
+                    }
+                    std::fs::rename(&from, &to)?;
+                }
+            }
+        }
+
+        let temp_path = path.with_extension(format!("{}.tmp", std::process::id()));
         std::fs::write(&temp_path, content)?;
         std::fs::rename(&temp_path, path)?;
         Ok(())
