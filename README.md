@@ -77,6 +77,13 @@ export TELEGRAM_TOKEN=your-token
 export AGENTIM_STATE_FILE=.agentim/sessions.json
 ```
 
+如果希望 webhook 需要共享密钥才能进入：
+
+```bash
+export AGENTIM_WEBHOOK_SECRET=change-me
+# 请求时带上 x-agentim-secret: change-me
+```
+
 先做 dry-run 看启动配置是否正确：
 
 ```bash

@@ -83,3 +83,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added executable reviewer coverage proving that different webhook routes can be mapped to different registered agents and return different responses.
 - Wired optional session persistence into the runtime via `--state-file` / `AGENTIM_STATE_FILE`, restoring sessions on startup and saving them after successful webhook handling.
 - Added reviewer coverage for persistence so session history can survive a restart path instead of being purely in-memory.
+- Added an optional shared webhook secret (`--webhook-secret` / `AGENTIM_WEBHOOK_SECRET`) enforced via the `x-agentim-secret` header across webhook routes.
+- Added reviewer coverage for the shared-secret guard so protected routes reject missing/wrong secrets and still accept valid traffic.

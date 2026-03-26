@@ -61,6 +61,10 @@ pub struct Args {
     #[arg(long)]
     pub state_file: Option<String>,
 
+    /// Require this shared secret in the x-agentim-secret header for webhook requests
+    #[arg(long)]
+    pub webhook_secret: Option<String>,
+
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long, default_value = "127.0.0.1:8080")]
     pub addr: String,

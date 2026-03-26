@@ -180,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
         feishu_agent_id,
         qq_agent_id,
         state_file,
+        webhook_secret: args.webhook_secret,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &args.addr).await?;

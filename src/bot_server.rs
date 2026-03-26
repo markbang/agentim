@@ -5,7 +5,7 @@ use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
 use crate::manager::AgentIM;
 use axum::{
     extract::{Json, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::post,
     Router,
 };
@@ -18,6 +18,7 @@ pub struct BotServerConfig {
     pub feishu_agent_id: String,
     pub qq_agent_id: String,
     pub state_file: Option<String>,
+    pub webhook_secret: Option<String>,
 }
 
 impl Default for BotServerConfig {
@@ -28,6 +29,7 @@ impl Default for BotServerConfig {
             feishu_agent_id: "default-agent".to_string(),
             qq_agent_id: "default-agent".to_string(),
             state_file: None,
+            webhook_secret: None,
         }
     }
 }
@@ -49,10 +51,29 @@ fn persist_if_configured(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
+    if let Some(expected) = state.config.webhook_secret.as_deref() {
+        let provided = headers
+            .get("x-agentim-secret")
+            .and_then(|value| value.to_str().ok());
+
+        if provided != Some(expected) {
+            return Err("missing or invalid x-agentim-secret".to_string());
+        }
+    }
+
+    Ok(())
+}
+
 async fn telegram_webhook(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(update): Json<TelegramUpdate>,
 ) -> (StatusCode, String) {
+    if let Err(err) = authorize(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
     match telegram_webhook_handler(
         state.agentim.clone(),
         state.config.telegram_agent_id.as_str(),
@@ -73,8 +94,13 @@ async fn telegram_webhook(
 
 async fn discord_webhook(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(message): Json<DiscordMessage>,
 ) -> (StatusCode, String) {
+    if let Err(err) = authorize(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
     match discord_webhook_handler(
         state.agentim.clone(),
         state.config.discord_agent_id.as_str(),
@@ -95,8 +121,13 @@ async fn discord_webhook(
 
 async fn feishu_webhook(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(message): Json<FeishuMessage>,
 ) -> (StatusCode, String) {
+    if let Err(err) = authorize(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
     match feishu_webhook_handler(
         state.agentim.clone(),
         state.config.feishu_agent_id.as_str(),
@@ -117,8 +148,13 @@ async fn feishu_webhook(
 
 async fn qq_webhook(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(message): Json<QQMessage>,
 ) -> (StatusCode, String) {
+    if let Err(err) = authorize(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
     match qq_webhook_handler(
         state.agentim.clone(),
         state.config.qq_agent_id.as_str(),

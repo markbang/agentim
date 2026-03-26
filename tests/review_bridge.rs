@@ -381,3 +381,60 @@ async fn readiness_reviewer_persists_sessions_between_restarts() {
 
     let _ = std::fs::remove_file(state_file);
 }
+
+#[tokio::test]
+async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            webhook_secret: Some("top-secret".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":11,"message":{"message_id":110,"chat":{"id":11},"text":"no secret"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong_secret = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .header("x-agentim-secret", "wrong")
+                .body(Body::from(
+                    r#"{"update_id":12,"message":{"message_id":120,"chat":{"id":12},"text":"wrong secret"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong_secret.status(), StatusCode::UNAUTHORIZED);
+
+    let authorized = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .header("x-agentim-secret", "top-secret")
+                .body(Body::from(
+                    r#"{"update_id":13,"message":{"message_id":130,"chat":{"id":13},"text":"good secret"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authorized.status(), StatusCode::OK);
+}

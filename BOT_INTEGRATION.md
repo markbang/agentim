@@ -67,6 +67,13 @@ AGENTIM_DRY_RUN=1 ./start.sh
 ./start.sh
 ```
 
+如果需要一个统一的轻量保护层，可以设置共享密钥：
+
+```bash
+export AGENTIM_WEBHOOK_SECRET=change-me
+# 所有 webhook 请求都需要 x-agentim-secret: change-me
+```
+
 ## 平台说明
 
 ### Telegram
