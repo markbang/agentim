@@ -43,6 +43,7 @@ export TELEGRAM_TOKEN=your-token
 
 ```bash
 AGENTIM_DRY_RUN=1 ./start.sh
+cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
 ## 常用凭证

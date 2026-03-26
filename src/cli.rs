@@ -57,6 +57,10 @@ pub struct Args {
     #[arg(long)]
     pub qq_agent: Option<String>,
 
+    /// Validate startup configuration and exit before starting the server
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
+
     /// Persist sessions to this JSON file and reload them on startup
     #[arg(long)]
     pub state_file: Option<String>,

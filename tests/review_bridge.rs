@@ -11,6 +11,7 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
@@ -497,4 +498,27 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
+}
+
+#[test]
+fn usability_reviewer_binary_dry_run_exits_cleanly() {
+    let state_file = temp_state_file();
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args([
+            "--dry-run",
+            "--agent",
+            "claude",
+            "--telegram-agent",
+            "pi",
+            "--state-file",
+            &state_file,
+            "--webhook-secret",
+            "secret",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Dry run complete"));
 }

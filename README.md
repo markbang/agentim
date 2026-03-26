@@ -92,6 +92,8 @@ export AGENTIM_WEBHOOK_SECRET=change-me
 
 ```bash
 AGENTIM_DRY_RUN=1 ./start.sh
+# 或直接
+cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
 ### 3. 凭证参数

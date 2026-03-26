@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --state-file --webhook-secret --addr; do
+  for flag in --telegram-token --discord-token --feishu-token --feishu-app-id --feishu-app-secret --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --dry-run --state-file --webhook-secret --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -80,6 +80,15 @@ cargo test --quiet --test review_bridge ops_reviewer_reports_runtime_status_and_
 ops_test_status=$?
 set -e
 if [ "$ops_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge usability_reviewer_binary_dry_run_exits_cleanly \
+  >/tmp/agentim-dry-run-test.out 2>/tmp/agentim-dry-run-test.err
+dry_run_test_status=$?
+set -e
+if [ "$dry_run_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -195,4 +204,10 @@ if [ "$ops_test_status" -ne 0 ]; then
   echo '--- ops review test tail ---'
   tail -20 /tmp/agentim-ops-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-ops-test.out 2>/dev/null || true
+fi
+
+if [ "$dry_run_test_status" -ne 0 ]; then
+  echo '--- binary dry-run review test tail ---'
+  tail -20 /tmp/agentim-dry-run-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-dry-run-test.out 2>/dev/null || true
 fi

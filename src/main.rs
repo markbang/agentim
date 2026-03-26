@@ -171,6 +171,11 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info(&format!("Restored {} sessions from {}", restored, path));
     }
 
+    if args.dry_run {
+        cli::print_success("Dry run complete; startup configuration validated.");
+        return Ok(());
+    }
+
     cli::print_info(&format!("Starting Bot server on {}", args.addr));
     cli::print_info("Waiting for incoming messages...");
 

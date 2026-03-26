@@ -87,3 +87,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer coverage for the shared-secret guard so protected routes reject missing/wrong secrets and still accept valid traffic.
 - Added lightweight ops/review endpoints (`GET /healthz`, `GET /reviewz`) that expose machine-readable runtime status, route-to-agent mapping, and whether persistence/security are enabled.
 - Added reviewer coverage for the ops/review endpoints so external automation can inspect bridge state without scraping logs.
+- Added a binary-level `--dry-run` mode so startup configuration can be validated without relying on `start.sh` or actually binding the webhook server.
+- Added reviewer coverage for binary dry-run behavior so the direct CLI path stays usable, not just the shell wrapper.
