@@ -10,7 +10,7 @@
     },
     {
       "channel": "discord",
-      "reply_target": "review-room",
+      "reply_target_prefix": "review-",
       "agent": "pi"
     }
   ],

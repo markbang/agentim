@@ -97,3 +97,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Exposed resolved routing rules through `/reviewz`, updated the runtime docs/examples, and added reviewer coverage proving user-level rules override the platform default route.
 - Extended `routing_rules` to match on `reply_target` as well, so Discord/QQ rooms or other reply destinations can be routed independently from the sender identity.
 - Added `max_session_messages` / `--max-session-messages` to bound session growth, wired it into webhook handling, surfaced it in `/reviewz`, and added reviewer coverage proving history trimming works.
+- Extended `routing_rules` further with prefix matching (`user_prefix`, `reply_target_prefix`) so groups of users/rooms can be mapped without enumerating every exact ID.
+- Updated examples/docs and added reviewer coverage proving prefix-based room routing overrides the platform default while unrelated rooms still fall back correctly.

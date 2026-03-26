@@ -47,7 +47,7 @@ export TELEGRAM_TOKEN=your-token
 {
   "routing_rules": [
     {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
-    {"channel": "discord", "reply_target": "review-room", "agent": "codex"}
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
   ]
 }
 ```

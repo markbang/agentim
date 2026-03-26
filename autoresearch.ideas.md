@@ -1,3 +1,3 @@
-- Extend `routing_rules` from exact `user_id` / `reply_target` matches to richer policy routing (workspace/team patterns, fallback priorities, maybe regex/prefix matching) without making startup confusing.
+- Extend `routing_rules` beyond exact/prefix matches to richer policy routing (workspace/team patterns, explicit priorities, maybe regex) without making startup confusing.
 - Add request-signature verification and replay protection for Telegram/Discord/Feishu/QQ webhooks before calling the agent.
 - Add deeper session-retention controls on top of `max_session_messages` (role-aware trimming, summary checkpoints, snapshot rotation) instead of simple FIFO whole-message truncation.

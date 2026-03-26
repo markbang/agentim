@@ -16,7 +16,9 @@ use std::sync::Arc;
 pub struct RoutingRule {
     pub channel: Option<String>,
     pub user_id: Option<String>,
+    pub user_prefix: Option<String>,
     pub reply_target: Option<String>,
+    pub reply_target_prefix: Option<String>,
     pub agent_id: String,
 }
 
@@ -25,9 +27,19 @@ impl RoutingRule {
         self.channel.as_deref().map(|value| value == channel).unwrap_or(true)
             && self.user_id.as_deref().map(|value| value == user_id).unwrap_or(true)
             && self
+                .user_prefix
+                .as_deref()
+                .map(|value| user_id.starts_with(value))
+                .unwrap_or(true)
+            && self
                 .reply_target
                 .as_deref()
                 .map(|value| value == reply_target)
+                .unwrap_or(true)
+            && self
+                .reply_target_prefix
+                .as_deref()
+                .map(|value| reply_target.starts_with(value))
                 .unwrap_or(true)
     }
 }

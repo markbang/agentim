@@ -27,7 +27,9 @@ use std::{collections::HashMap, fs, sync::Arc};
 struct RuntimeRoutingRuleConfig {
     channel: Option<String>,
     user_id: Option<String>,
+    user_prefix: Option<String>,
     reply_target: Option<String>,
+    reply_target_prefix: Option<String>,
     agent: String,
 }
 
@@ -183,7 +185,9 @@ async fn main() -> anyhow::Result<()> {
             Ok(RoutingRule {
                 channel: rule.channel,
                 user_id: rule.user_id,
+                user_prefix: rule.user_prefix,
                 reply_target: rule.reply_target,
+                reply_target_prefix: rule.reply_target_prefix,
                 agent_id,
             })
         })

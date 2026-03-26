@@ -82,13 +82,13 @@ export AGENTIM_WEBHOOK_SECRET=change-me
 export AGENTIM_MAX_SESSION_MESSAGES=50
 ```
 
-如果需要把某个用户或某个回复目标路由到特殊 agent，可以在 `agentim.json` 中配置：
+如果需要把某个用户、某个回复目标，或者某类回复目标前缀路由到特殊 agent，可以在 `agentim.json` 中配置：
 
 ```json
 {
   "routing_rules": [
     {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
-    {"channel": "discord", "reply_target": "review-room", "agent": "codex"}
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
   ]
 }
 ```

@@ -128,7 +128,7 @@ Incoming webhook
 ```
 
 这意味着 Discord / QQ 这类“用户 ID 和回复 channel ID 不同”的平台，也能走统一桥接路径。
-另外，运行时 JSON 配置里的 `routing_rules` 可以把特定平台上的特定用户，或特定 `reply_target`（如 Discord / QQ 频道）定向到不同 agent。
+另外，运行时 JSON 配置里的 `routing_rules` 可以把特定平台上的特定用户、特定 `reply_target`（如 Discord / QQ 频道），或者一组带相同前缀的 `reply_target` 定向到不同 agent。
 
 ## Review / Eval
 

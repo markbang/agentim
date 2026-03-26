@@ -363,7 +363,9 @@ async fn routing_reviewer_overrides_platform_route_for_matching_user() {
             routing_rules: vec![RoutingRule {
                 channel: Some("telegram".to_string()),
                 user_id: Some("999".to_string()),
+                user_prefix: None,
                 reply_target: None,
+                reply_target_prefix: None,
                 agent_id: "rule-agent-pi".to_string(),
             }],
             ..BotServerConfig::default()
@@ -433,7 +435,9 @@ async fn routing_reviewer_overrides_platform_route_for_matching_reply_target() {
             routing_rules: vec![RoutingRule {
                 channel: Some("discord".to_string()),
                 user_id: None,
+                user_prefix: None,
                 reply_target: Some("room-1".to_string()),
+                reply_target_prefix: None,
                 agent_id: "rule-agent-codex".to_string(),
             }],
             ..BotServerConfig::default()
@@ -478,6 +482,78 @@ async fn routing_reviewer_overrides_platform_route_for_matching_reply_target() {
         DISCORD_CHANNEL_ID.to_string(),
         "room-2".to_string(),
         "discord:default room".to_string(),
+    )));
+}
+
+#[tokio::test]
+async fn routing_reviewer_matches_reply_target_prefix() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+
+    register_review_agent(&agentim, "default-agent", "default");
+    register_review_agent(&agentim, "discord-agent", "discord");
+    register_review_agent(&agentim, "rule-agent-pi", "review-prefix");
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        DISCORD_CHANNEL_ID,
+        ChannelType::Discord,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            discord_agent_id: "discord-agent".to_string(),
+            routing_rules: vec![RoutingRule {
+                channel: Some("discord".to_string()),
+                user_id: None,
+                user_prefix: None,
+                reply_target: None,
+                reply_target_prefix: Some("review-".to_string()),
+                agent_id: "rule-agent-pi".to_string(),
+            }],
+            ..BotServerConfig::default()
+        },
+    );
+
+    let matched = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"id":"m8","author":{"id":"user-prefix-a","username":"prefix-a"},"content":"prefix match","channel_id":"review-room-9"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(matched.status(), StatusCode::OK);
+
+    let fallback = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"id":"m9","author":{"id":"user-prefix-b","username":"prefix-b"},"content":"prefix default","channel_id":"general-room-2"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fallback.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        DISCORD_CHANNEL_ID.to_string(),
+        "review-room-9".to_string(),
+        "review-prefix:prefix match".to_string(),
+    )));
+    assert!(sent.contains(&(
+        DISCORD_CHANNEL_ID.to_string(),
+        "general-room-2".to_string(),
+        "discord:prefix default".to_string(),
     )));
 }
 
@@ -759,7 +835,8 @@ fn usability_reviewer_loads_runtime_config_file() {
   "agent": "codex",
   "telegram_agent": "pi",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "claude"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "claude"},
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "pi"}
   ],
   "state_file": ".agentim/test-sessions.json",
   "max_session_messages": 4,
@@ -777,7 +854,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Default agent 'codex' registered"));
     assert!(stdout.contains("Telegram traffic -> pi agent"));
-    assert!(stdout.contains("Loaded 1 routing rule"));
+    assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
     assert!(stdout.contains("Dry run complete"));
 
