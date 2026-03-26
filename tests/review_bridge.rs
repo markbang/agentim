@@ -388,6 +388,7 @@ async fn routing_reviewer_overrides_platform_route_for_matching_user() {
                 user_prefix: None,
                 reply_target: None,
                 reply_target_prefix: None,
+                priority: 0,
                 agent_id: "rule-agent-pi".to_string(),
             }],
             ..BotServerConfig::default()
@@ -460,6 +461,7 @@ async fn routing_reviewer_overrides_platform_route_for_matching_reply_target() {
                 user_prefix: None,
                 reply_target: Some("room-1".to_string()),
                 reply_target_prefix: None,
+                priority: 0,
                 agent_id: "rule-agent-codex".to_string(),
             }],
             ..BotServerConfig::default()
@@ -508,6 +510,91 @@ async fn routing_reviewer_overrides_platform_route_for_matching_reply_target() {
 }
 
 #[tokio::test]
+async fn routing_reviewer_prefers_higher_priority_rule_when_multiple_match() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+
+    register_review_agent(&agentim, "default-agent", "default");
+    register_review_agent(&agentim, "telegram-agent", "telegram");
+    register_review_agent(&agentim, "rule-agent-pi", "priority-prefix");
+    register_review_agent(&agentim, "rule-agent-codex", "priority-exact");
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            telegram_agent_id: "telegram-agent".to_string(),
+            routing_rules: vec![
+                RoutingRule {
+                    channel: Some("telegram".to_string()),
+                    user_id: None,
+                    user_prefix: Some("7".to_string()),
+                    reply_target: None,
+                    reply_target_prefix: None,
+                    priority: 1,
+                    agent_id: "rule-agent-pi".to_string(),
+                },
+                RoutingRule {
+                    channel: Some("telegram".to_string()),
+                    user_id: Some("7007".to_string()),
+                    user_prefix: None,
+                    reply_target: None,
+                    reply_target_prefix: None,
+                    priority: 10,
+                    agent_id: "rule-agent-codex".to_string(),
+                },
+            ],
+            ..BotServerConfig::default()
+        },
+    );
+
+    let exact = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":18,"message":{"message_id":180,"chat":{"id":7007},"text":"priority exact"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exact.status(), StatusCode::OK);
+
+    let prefix_only = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":19,"message":{"message_id":190,"chat":{"id":7008},"text":"priority prefix"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(prefix_only.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "7007".to_string(),
+        "priority-exact:priority exact".to_string(),
+    )));
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "7008".to_string(),
+        "priority-prefix:priority prefix".to_string(),
+    )));
+}
+
+#[tokio::test]
 async fn routing_reviewer_matches_reply_target_prefix() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = Arc::new(AgentIM::new());
@@ -532,6 +619,7 @@ async fn routing_reviewer_matches_reply_target_prefix() {
                 user_prefix: None,
                 reply_target: None,
                 reply_target_prefix: Some("review-".to_string()),
+                priority: 0,
                 agent_id: "rule-agent-pi".to_string(),
             }],
             ..BotServerConfig::default()

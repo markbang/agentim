@@ -1,3 +1,3 @@
-- Extend `routing_rules` beyond exact/prefix matches to richer policy routing (workspace/team patterns, explicit priorities, maybe regex) without making startup confusing.
+- Extend `routing_rules` from exact/prefix/priority matching to even richer policy routing only if needed (workspace/team patterns or regex), but avoid turning startup config into a DSL too early.
 - Add more platform-native verification adapters where practical (Telegram secret token now exists; next candidates are Discord/Feishu/QQ native signature schemes).
 - Add deeper session-retention controls on top of `max_session_messages` (role-aware trimming, summary checkpoints, snapshot rotation) instead of simple FIFO whole-message truncation.

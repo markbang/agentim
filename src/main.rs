@@ -30,6 +30,7 @@ struct RuntimeRoutingRuleConfig {
     user_prefix: Option<String>,
     reply_target: Option<String>,
     reply_target_prefix: Option<String>,
+    priority: Option<i32>,
     agent: String,
 }
 
@@ -203,6 +204,7 @@ async fn main() -> anyhow::Result<()> {
                 user_prefix: rule.user_prefix,
                 reply_target: rule.reply_target,
                 reply_target_prefix: rule.reply_target_prefix,
+                priority: rule.priority.unwrap_or(0),
                 agent_id,
             })
         })

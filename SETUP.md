@@ -104,14 +104,14 @@ AGENTIM_DRY_RUN=1 ./start.sh
   "agent": "claude",
   "telegram_agent": "codex",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
-    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "pi"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "codex"}
   ]
 }
 ```
 
 优先级：
-1. `routing_rules` 命中（可按 `channel` + `user_id`、`reply_target`，或 prefix 规则匹配）
+1. `routing_rules` 命中（先比 `priority`，再比规则具体度；可按 `channel` + `user_id`、`reply_target`，或 prefix 规则匹配）
 2. 平台级 agent override
 3. 默认 `agent`
 

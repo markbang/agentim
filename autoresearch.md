@@ -103,3 +103,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Exposed signed-webhook status through `/reviewz`, updated startup/docs/examples, and added reviewer coverage proving missing/invalid signatures are rejected while valid signed requests pass exactly once.
 - Added a first platform-native verification adapter for Telegram via `--telegram-webhook-secret-token` / `TELEGRAM_WEBHOOK_SECRET_TOKEN`, enforced with `x-telegram-bot-api-secret-token`.
 - Updated Telegram bot setup support (`set_webhook_with_secret`), docs/startup/config, and reviewer coverage so Telegram-native secret-token protection is exercised end-to-end.
+- Made `routing_rules` deterministic with explicit `priority` support and specificity-aware selection when multiple rules match the same request.
+- Updated examples/docs and added reviewer coverage proving higher-priority exact rules beat broader prefix rules while non-overlapping traffic still follows the broader fallback.

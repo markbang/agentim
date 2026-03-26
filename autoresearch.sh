@@ -84,6 +84,15 @@ if [ "$routing_prefix_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge routing_reviewer_prefers_higher_priority_rule_when_multiple_match \
+  >/tmp/agentim-routing-priority-test.out 2>/tmp/agentim-routing-priority-test.err
+routing_priority_test_status=$?
+set -e
+if [ "$routing_priority_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge readiness_reviewer_enforces_max_session_messages \
   >/tmp/agentim-max-history-test.out 2>/tmp/agentim-max-history-test.err
 max_history_test_status=$?
@@ -276,6 +285,12 @@ if [ "$routing_prefix_test_status" -ne 0 ]; then
   echo '--- routing-prefix review test tail ---'
   tail -20 /tmp/agentim-routing-prefix-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-routing-prefix-test.out 2>/dev/null || true
+fi
+
+if [ "$routing_priority_test_status" -ne 0 ]; then
+  echo '--- routing-priority review test tail ---'
+  tail -20 /tmp/agentim-routing-priority-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-routing-priority-test.out 2>/dev/null || true
 fi
 
 if [ "$max_history_test_status" -ne 0 ]; then

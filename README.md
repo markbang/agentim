@@ -9,7 +9,7 @@
 
 > 当前二进制会注册一个默认 agent，并支持两级路由：
 > 1. 按平台覆盖：`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`
-> 2. 按配置规则覆盖：`routing_rules`（可按平台 + 用户精确匹配）
+> 2. 按配置规则覆盖：`routing_rules`（可按用户/目标/前缀匹配，并支持 `priority`）
 >
 > 更复杂的 workspace / 组织级策略路由，仍然更适合直接用库层扩展。
 

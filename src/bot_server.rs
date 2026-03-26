@@ -26,6 +26,7 @@ pub struct RoutingRule {
     pub user_prefix: Option<String>,
     pub reply_target: Option<String>,
     pub reply_target_prefix: Option<String>,
+    pub priority: i32,
     pub agent_id: String,
 }
 
@@ -48,6 +49,19 @@ impl RoutingRule {
                 .as_deref()
                 .map(|value| reply_target.starts_with(value))
                 .unwrap_or(true)
+    }
+
+    fn specificity(&self) -> i32 {
+        [
+            self.channel.is_some(),
+            self.user_id.is_some(),
+            self.user_prefix.is_some(),
+            self.reply_target.is_some(),
+            self.reply_target_prefix.is_some(),
+        ]
+        .into_iter()
+        .filter(|matched| *matched)
+        .count() as i32
     }
 }
 
@@ -76,7 +90,8 @@ impl BotServerConfig {
     ) -> &'a str {
         self.routing_rules
             .iter()
-            .find(|rule| rule.matches(channel, user_id, reply_target))
+            .filter(|rule| rule.matches(channel, user_id, reply_target))
+            .max_by_key(|rule| (rule.priority, rule.specificity()))
             .map(|rule| rule.agent_id.as_str())
             .unwrap_or(fallback)
     }

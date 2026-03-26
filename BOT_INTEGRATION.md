@@ -103,8 +103,8 @@ export AGENTIM_MAX_SESSION_MESSAGES=50
 ```json
 {
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "pi"},
-    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "pi"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "codex"}
   ]
 }
 ```
