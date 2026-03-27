@@ -123,3 +123,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Extended reviewer coverage to prove the context window limit affects the agent prompt without forcing session persistence/history retention to shrink to the same size.
 - Added a Feishu-native webhook verification token (`--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN`) enforced against the payload's `token` field, including challenge/onboarding requests.
 - Exposed Feishu verification-token status through startup output and `/reviewz`, and added reviewer coverage proving missing/wrong payload tokens are rejected while valid Feishu requests still pass.
+- Reworked `history_summary` truncation to drop whole oldest summary fragments and prepend a structured omission marker (`[summary] N older fragment(s) omitted`) instead of raw character-level tail slicing.
+- Added reviewer/unit coverage proving long bounded-history summaries now stay fragment-aligned and machine-readable instead of degrading into mid-fragment truncation.

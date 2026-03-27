@@ -144,6 +144,15 @@ if [ "$summary_pair_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge readiness_reviewer_truncates_long_history_summary_on_fragment_boundaries \
+  >/tmp/agentim-summary-boundary-test.out 2>/tmp/agentim-summary-boundary-test.err
+summary_boundary_test_status=$?
+set -e
+if [ "$summary_boundary_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge readiness_reviewer_persists_sessions_between_restarts \
   >/tmp/agentim-persistence-test.out 2>/tmp/agentim-persistence-test.err
 persistence_test_status=$?
@@ -408,6 +417,12 @@ if [ "$summary_pair_test_status" -ne 0 ]; then
   echo '--- summary-pair review test tail ---'
   tail -20 /tmp/agentim-summary-pair-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-summary-pair-test.out 2>/dev/null || true
+fi
+
+if [ "$summary_boundary_test_status" -ne 0 ]; then
+  echo '--- summary-boundary review test tail ---'
+  tail -20 /tmp/agentim-summary-boundary-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-summary-boundary-test.out 2>/dev/null || true
 fi
 
 if [ "$persistence_test_status" -ne 0 ]; then

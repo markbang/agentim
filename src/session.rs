@@ -203,30 +203,60 @@ impl Session {
             return;
         }
 
-        let mut summary = self
-            .metadata
-            .get("history_summary")
-            .cloned()
-            .unwrap_or_default();
-        if !summary.is_empty() {
-            summary.push_str(" | ");
+        let mut summary_fragments = Vec::new();
+        let mut omitted_fragments = 0usize;
+
+        if let Some(existing_summary) = self.metadata.get("history_summary") {
+            for fragment in existing_summary
+                .split(" | ")
+                .filter(|fragment| !fragment.is_empty())
+            {
+                if summary_fragments.is_empty() {
+                    if let Some(existing_omitted) = Self::parse_summary_omitted_fragment(fragment) {
+                        omitted_fragments += existing_omitted;
+                        continue;
+                    }
+                }
+
+                summary_fragments.push(fragment.to_string());
+            }
         }
-        summary.push_str(&new_fragments.join(" | "));
+
+        summary_fragments.extend(new_fragments);
 
         let max_chars = 600;
-        if summary.chars().count() > max_chars {
-            let tail = summary
+        while !summary_fragments.is_empty()
+            && Self::render_history_summary(&summary_fragments, omitted_fragments)
                 .chars()
-                .rev()
-                .take(max_chars - 3)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<String>();
-            summary = format!("...{}", tail);
+                .count()
+                > max_chars
+        {
+            summary_fragments.remove(0);
+            omitted_fragments += 1;
         }
 
+        let summary = Self::render_history_summary(&summary_fragments, omitted_fragments);
         self.metadata.insert("history_summary".to_string(), summary);
+    }
+
+    fn parse_summary_omitted_fragment(fragment: &str) -> Option<usize> {
+        fragment
+            .strip_prefix("[summary] ")?
+            .strip_suffix(" older fragment(s) omitted")?
+            .parse::<usize>()
+            .ok()
+    }
+
+    fn render_history_summary(fragments: &[String], omitted_fragments: usize) -> String {
+        let mut parts = Vec::new();
+        if omitted_fragments > 0 {
+            parts.push(format!(
+                "[summary] {} older fragment(s) omitted",
+                omitted_fragments
+            ));
+        }
+        parts.extend(fragments.iter().cloned());
+        parts.join(" | ")
     }
 }
 
@@ -297,5 +327,32 @@ mod tests {
         assert!(context[0].content.contains("[turn] u1 => a1"));
         assert_eq!(context[1].content, "u2");
         assert_eq!(context[2].content, "a2");
+    }
+
+    #[test]
+    fn test_trim_history_truncates_summary_on_fragment_boundaries() {
+        let mut session = Session::new(
+            "agent1".to_string(),
+            "channel1".to_string(),
+            "user1".to_string(),
+        );
+
+        for index in 0..10 {
+            let content = format!("turn-{index}-abcdefghijklmnopqrstuvwxyz0123456789");
+            session.add_message(MessageRole::User, content.clone());
+            session.add_message(MessageRole::Assistant, format!("reply-{content}"));
+        }
+
+        session.trim_history(2);
+        let summary = session.metadata.get("history_summary").cloned().unwrap();
+        let fragments = summary.split(" | ").collect::<Vec<_>>();
+
+        assert!(summary.starts_with("[summary] "));
+        assert!(fragments.len() > 1);
+        assert!(fragments[0].contains("older fragment(s) omitted"));
+        assert!(fragments[1..]
+            .iter()
+            .all(|fragment| fragment.starts_with("[turn] ") || fragment.starts_with("[user] ") || fragment.starts_with("[assistant] ")));
+        assert!(!summary.starts_with("..."));
     }
 }

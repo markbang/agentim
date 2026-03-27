@@ -954,6 +954,51 @@ async fn readiness_reviewer_compacts_trimmed_turns_into_turn_pairs() {
 }
 
 #[tokio::test]
+async fn readiness_reviewer_truncates_long_history_summary_on_fragment_boundaries() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            max_session_messages: Some(2),
+            ..BotServerConfig::default()
+        },
+    );
+
+    for index in 0..10 {
+        let text = format!("turn-{index}-abcdefghijklmnopqrstuvwxyz0123456789");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/telegram")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        "{{\"update_id\":{},\"message\":{{\"message_id\":{},\"chat\":{{\"id\":7070}},\"text\":\"{}\"}}}}",
+                        300 + index,
+                        3000 + index,
+                        text
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let session = agentim.list_sessions().into_iter().next().unwrap();
+    let summary = session.metadata.get("history_summary").cloned().unwrap();
+    let fragments = summary.split(" | ").collect::<Vec<_>>();
+
+    assert!(summary.starts_with("[summary] "));
+    assert!(fragments.len() > 1);
+    assert!(fragments[0].contains("older fragment(s) omitted"));
+    assert!(fragments[1..]
+        .iter()
+        .all(|fragment| fragment.starts_with("[turn] ") || fragment.starts_with("[user] ") || fragment.starts_with("[assistant] ")));
+    assert!(!summary.starts_with("..."));
+}
+
+#[tokio::test]
 async fn readiness_reviewer_persists_sessions_between_restarts() {
     let state_file = temp_state_file();
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
