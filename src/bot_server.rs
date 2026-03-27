@@ -12,6 +12,7 @@ use axum::{
 };
 use chrono::Utc;
 use dashmap::DashMap;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
@@ -80,6 +81,7 @@ pub struct BotServerConfig {
     pub webhook_signing_secret: Option<String>,
     pub webhook_max_skew_seconds: i64,
     pub telegram_webhook_secret_token: Option<String>,
+    pub discord_interaction_public_key: Option<String>,
     pub feishu_verification_token: Option<String>,
 }
 
@@ -116,6 +118,7 @@ impl Default for BotServerConfig {
             webhook_signing_secret: None,
             webhook_max_skew_seconds: 300,
             telegram_webhook_secret_token: None,
+            discord_interaction_public_key: None,
             feishu_verification_token: None,
         }
     }
@@ -151,6 +154,7 @@ struct ReviewResponse {
     webhook_signing_enabled: bool,
     webhook_max_skew_seconds: i64,
     telegram_webhook_secret_token_enabled: bool,
+    discord_interaction_public_key_enabled: bool,
     feishu_verification_token_enabled: bool,
 }
 
@@ -274,6 +278,46 @@ fn authorize_telegram_secret_token(headers: &HeaderMap, state: &AppState) -> Res
     Ok(())
 }
 
+fn authorize_discord_interaction_signature(
+    headers: &HeaderMap,
+    body: &Bytes,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(public_key_hex) = state.config.discord_interaction_public_key.as_deref() else {
+        return Ok(());
+    };
+
+    let timestamp = headers
+        .get("x-signature-timestamp")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-signature-timestamp".to_string())?;
+    let signature_hex = headers
+        .get("x-signature-ed25519")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-signature-ed25519".to_string())?;
+
+    let public_key_bytes = hex::decode(public_key_hex)
+        .map_err(|_| "invalid discord interaction public key encoding".to_string())?;
+    let verifying_key = VerifyingKey::from_bytes(
+        &public_key_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid discord interaction public key length".to_string())?,
+    )
+    .map_err(|_| "invalid discord interaction public key".to_string())?;
+
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|_| "invalid x-signature-ed25519 encoding".to_string())?;
+    let signature = Signature::from_slice(&signature_bytes)
+        .map_err(|_| "invalid x-signature-ed25519 length".to_string())?;
+
+    let mut signed_message = timestamp.as_bytes().to_vec();
+    signed_message.extend_from_slice(body);
+    verifying_key
+        .verify(&signed_message, &signature)
+        .map_err(|_| "invalid x-signature-ed25519".to_string())
+}
+
 fn authorize_feishu_verification_token(body: &Bytes, state: &AppState) -> Result<(), String> {
     let Some(expected) = state.config.feishu_verification_token.as_deref() else {
         return Ok(());
@@ -347,6 +391,7 @@ async fn reviewz(
                 webhook_signing_enabled: false,
                 webhook_max_skew_seconds: 0,
                 telegram_webhook_secret_token_enabled: false,
+                discord_interaction_public_key_enabled: false,
                 feishu_verification_token_enabled: false,
             }),
         );
@@ -375,6 +420,10 @@ async fn reviewz(
             telegram_webhook_secret_token_enabled: state
                 .config
                 .telegram_webhook_secret_token
+                .is_some(),
+            discord_interaction_public_key_enabled: state
+                .config
+                .discord_interaction_public_key
                 .is_some(),
             feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
         }),
@@ -447,6 +496,9 @@ async fn discord_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_discord_interaction_signature(&headers, &body, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
 

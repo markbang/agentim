@@ -44,6 +44,15 @@ cargo run -- --agent claude --telegram-agent pi --telegram-token "$TELEGRAM_TOKE
 cargo run -- --agent claude --discord-token "$DISCORD_TOKEN"
 ```
 
+如需启用 Discord 原生 interaction 签名校验：
+
+```bash
+cargo run -- \
+  --agent claude \
+  --discord-token "$DISCORD_TOKEN" \
+  --discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY"
+```
+
 ### Feishu
 
 ```bash
@@ -92,6 +101,13 @@ Telegram 还支持一个更原生的 secret token 校验头：
 ```bash
 export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # 请求需要带 x-telegram-bot-api-secret-token: tg-native-secret
+```
+
+Discord 也支持按官方 interaction headers 做原生签名校验：
+
+```bash
+export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
+# /discord 会校验 x-signature-ed25519 + x-signature-timestamp
 ```
 
 Feishu 也支持按 payload 里的原生 token 做校验：

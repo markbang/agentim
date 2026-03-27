@@ -13,6 +13,7 @@ use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
 };
+use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::process::Command;
@@ -137,6 +138,24 @@ fn signed_headers(secret: &str, body: &str, timestamp: i64, nonce: &str) -> [(St
             "x-agentim-signature".to_string(),
             format!("sha256={}", hex::encode(mac.finalize().into_bytes())),
         ),
+    ]
+}
+
+fn discord_signed_headers(
+    signing_key: &SigningKey,
+    body: &str,
+    timestamp: &str,
+) -> [(String, String); 2] {
+    let mut signed_message = timestamp.as_bytes().to_vec();
+    signed_message.extend_from_slice(body.as_bytes());
+    let signature = signing_key.sign(&signed_message);
+
+    [
+        (
+            "x-signature-ed25519".to_string(),
+            hex::encode(signature.to_bytes()),
+        ),
+        ("x-signature-timestamp".to_string(), timestamp.to_string()),
     ]
 }
 
@@ -1312,6 +1331,61 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 }
 
 #[tokio::test]
+async fn security_reviewer_accepts_discord_interaction_signature_only_when_headers_verify() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            discord_interaction_public_key: Some(hex::encode(signing_key.verifying_key().to_bytes())),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let body = r#"{"id":"discord-msg-1","author":{"id":"discord-user","username":"tester"},"content":"hello discord","channel_id":"discord-room"}"#;
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong = app
+        .clone()
+        .oneshot(
+            Request::post("/discord")
+                .header("content-type", "application/json")
+                .header("x-signature-timestamp", "1700000000")
+                .header("x-signature-ed25519", "deadbeef")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+
+    let headers = discord_signed_headers(&signing_key, body, "1700000000");
+    let valid_request = headers.iter().fold(
+        Request::post("/discord")
+            .header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let ok = app
+        .clone()
+        .oneshot(valid_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn security_reviewer_accepts_feishu_verification_token_only_when_payload_token_matches() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1470,6 +1544,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
             telegram_webhook_secret_token: Some("tg-inspect".to_string()),
+            discord_interaction_public_key: Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()),
             feishu_verification_token: Some("fei-inspect".to_string()),
             ..BotServerConfig::default()
         },
@@ -1514,6 +1589,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["webhook_signing_enabled"], true);
     assert_eq!(review_json["webhook_max_skew_seconds"], 120);
     assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
+    assert_eq!(review_json["discord_interaction_public_key_enabled"], true);
     assert_eq!(review_json["feishu_verification_token_enabled"], true);
 }
 
@@ -1558,6 +1634,7 @@ fn usability_reviewer_loads_runtime_config_file() {
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
   "telegram_webhook_secret_token": "tg-config",
+  "discord_interaction_public_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "feishu_verification_token": "fei-config",
   "addr": "127.0.0.1:9090"
 }"#;
@@ -1578,6 +1655,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Agent context window limited to 7 message"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Telegram native webhook secret token enabled"));
+    assert!(stdout.contains("Discord interaction signature verification enabled"));
     assert!(stdout.contains("Feishu webhook verification token enabled"));
     assert!(stdout.contains("Dry run complete"));
 

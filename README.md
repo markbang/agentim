@@ -117,6 +117,13 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # Telegram 会发送 x-telegram-bot-api-secret-token
 ```
 
+如果你在 Discord 上想启用原生 interaction 签名校验：
+
+```bash
+export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
+# /discord 会校验 x-signature-ed25519 + x-signature-timestamp
+```
+
 如果你在 Feishu 上想启用平台自带的 payload token 校验：
 
 ```bash
@@ -149,6 +156,7 @@ cargo run -- --dry-run --agent claude --telegram-agent pi
 
 额外的 provider-native webhook 校验参数：
 - `--telegram-webhook-secret-token`
+- `--discord-interaction-public-key`
 - `--feishu-verification-token`
 
 ## 消息桥接流程

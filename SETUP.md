@@ -30,6 +30,7 @@ cargo run -- \
 cargo run -- \
   --agent codex \
   --discord-token "$DISCORD_TOKEN" \
+  --discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY" \
   --addr 0.0.0.0:8080
 ```
 
@@ -85,6 +86,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_WEBHOOK_SIGNING_SECRET`
 - `AGENTIM_WEBHOOK_MAX_SKEW_SECONDS`
 - `TELEGRAM_WEBHOOK_SECRET_TOKEN`
+- `DISCORD_INTERACTION_PUBLIC_KEY`
 - `FEISHU_WEBHOOK_VERIFICATION_TOKEN`
 - `TELEGRAM_AGENT`
 - `DISCORD_AGENT`

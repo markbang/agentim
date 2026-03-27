@@ -20,6 +20,7 @@
   "telegram_webhook_secret_token": "YOUR_TELEGRAM_WEBHOOK_SECRET_TOKEN",
   "feishu_verification_token": "YOUR_FEISHU_WEBHOOK_VERIFICATION_TOKEN",
   "discord_token": "YOUR_DISCORD_TOKEN",
+  "discord_interaction_public_key": "YOUR_DISCORD_INTERACTION_PUBLIC_KEY",
   "feishu_app_id": "YOUR_FEISHU_APP_ID",
   "feishu_app_secret": "YOUR_FEISHU_APP_SECRET",
   "qq_bot_id": "YOUR_QQ_BOT_ID",

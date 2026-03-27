@@ -17,6 +17,10 @@ pub struct Args {
     #[arg(long)]
     pub discord_token: Option<String>,
 
+    /// Native Discord interaction public key for x-signature-ed25519 verification
+    #[arg(long)]
+    pub discord_interaction_public_key: Option<String>,
+
     /// Deprecated fallback: Feishu credentials as "app_id:app_secret"
     #[arg(long)]
     pub feishu_token: Option<String>,

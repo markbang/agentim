@@ -46,6 +46,7 @@ struct RuntimeConfig {
     telegram_token: Option<String>,
     telegram_webhook_secret_token: Option<String>,
     discord_token: Option<String>,
+    discord_interaction_public_key: Option<String>,
     feishu_token: Option<String>,
     feishu_app_id: Option<String>,
     feishu_app_secret: Option<String>,
@@ -140,6 +141,10 @@ async fn main() -> anyhow::Result<()> {
         runtime_config.telegram_webhook_secret_token,
     );
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
+    let discord_interaction_public_key = merge_option(
+        args.discord_interaction_public_key,
+        runtime_config.discord_interaction_public_key,
+    );
     let feishu_token = merge_option(args.feishu_token, runtime_config.feishu_token);
     let feishu_app_id = merge_option(args.feishu_app_id, runtime_config.feishu_app_id);
     let feishu_app_secret = merge_option(args.feishu_app_secret, runtime_config.feishu_app_secret);
@@ -355,6 +360,9 @@ async fn main() -> anyhow::Result<()> {
     if telegram_webhook_secret_token.is_some() {
         cli::print_info("Telegram native webhook secret token enabled");
     }
+    if discord_interaction_public_key.is_some() {
+        cli::print_info("Discord interaction signature verification enabled");
+    }
     if feishu_verification_token.is_some() {
         cli::print_info("Feishu webhook verification token enabled");
     }
@@ -381,6 +389,7 @@ async fn main() -> anyhow::Result<()> {
         webhook_signing_secret,
         webhook_max_skew_seconds,
         telegram_webhook_secret_token,
+        discord_interaction_public_key,
         feishu_verification_token,
     };
 

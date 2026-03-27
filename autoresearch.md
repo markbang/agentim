@@ -125,3 +125,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Exposed Feishu verification-token status through startup output and `/reviewz`, and added reviewer coverage proving missing/wrong payload tokens are rejected while valid Feishu requests still pass.
 - Reworked `history_summary` truncation to drop whole oldest summary fragments and prepend a structured omission marker (`[summary] N older fragment(s) omitted`) instead of raw character-level tail slicing.
 - Added reviewer/unit coverage proving long bounded-history summaries now stay fragment-aligned and machine-readable instead of degrading into mid-fragment truncation.
+- Added a Discord-native interaction signature adapter (`--discord-interaction-public-key` / `DISCORD_INTERACTION_PUBLIC_KEY`) that verifies `x-signature-ed25519` + `x-signature-timestamp` against the raw request body before `/discord` payload handling.
+- Exposed Discord signature-verification status through startup output and `/reviewz`, and added reviewer coverage proving invalid/missing signatures are rejected while valid signed Discord requests still pass through the bridge.

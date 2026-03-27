@@ -34,6 +34,10 @@ if [[ -n "${DISCORD_TOKEN:-}" ]]; then
   args+=(--discord-token "$DISCORD_TOKEN")
 fi
 
+if [[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]]; then
+  args+=(--discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY")
+fi
+
 if [[ -n "${FEISHU_APP_ID:-}" || -n "${FEISHU_APP_SECRET:-}" ]]; then
   : "${FEISHU_APP_ID:?FEISHU_APP_ID must be set with FEISHU_APP_SECRET}"
   : "${FEISHU_APP_SECRET:?FEISHU_APP_SECRET must be set with FEISHU_APP_ID}"
@@ -61,6 +65,7 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
+[[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]] && echo "Discord native signature: enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
