@@ -207,6 +207,22 @@ impl AgentIM {
         user_message: String,
         context_message_limit: usize,
     ) -> Result<String> {
+        self.send_to_agent_with_context_limit_and_timeout(
+            session_id,
+            user_message,
+            context_message_limit,
+            None,
+        )
+        .await
+    }
+
+    pub async fn send_to_agent_with_context_limit_and_timeout(
+        &self,
+        session_id: &str,
+        user_message: String,
+        context_message_limit: usize,
+        agent_timeout_ms: Option<u64>,
+    ) -> Result<String> {
         let mut session = self.get_session(session_id)?;
         let agent = self.get_agent(&session.agent_id)?;
 
@@ -217,7 +233,18 @@ impl AgentIM {
         let context = session.get_context(context_message_limit);
 
         // Send to agent
-        let response = agent.send_message(context).await?;
+        let response = if let Some(timeout_ms) = agent_timeout_ms {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                agent.send_message(context),
+            )
+            .await
+            .map_err(|_| {
+                AgentError::TimeoutError(format!("agent request exceeded {}ms", timeout_ms))
+            })??
+        } else {
+            agent.send_message(context).await?
+        };
 
         // Add agent response to session
         session.add_message(crate::session::MessageRole::Assistant, response.clone());
@@ -297,6 +324,30 @@ impl AgentIM {
         max_messages: Option<usize>,
         context_message_limit: usize,
     ) -> Result<String> {
+        self.handle_incoming_message_with_runtime_limits(
+            agent_id,
+            channel_id,
+            user_id,
+            reply_target,
+            user_message,
+            max_messages,
+            context_message_limit,
+            None,
+        )
+        .await
+    }
+
+    pub async fn handle_incoming_message_with_runtime_limits(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+        max_messages: Option<usize>,
+        context_message_limit: usize,
+        agent_timeout_ms: Option<u64>,
+    ) -> Result<String> {
         let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
 
         if let Some(reply_target) = reply_target {
@@ -308,7 +359,12 @@ impl AgentIM {
         }
 
         let response = self
-            .send_to_agent_with_context_limit(&session_id, user_message, context_message_limit)
+            .send_to_agent_with_context_limit_and_timeout(
+                &session_id,
+                user_message,
+                context_message_limit,
+                agent_timeout_ms,
+            )
             .await?;
 
         if let Some(max_messages) = max_messages {

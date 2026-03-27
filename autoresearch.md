@@ -129,3 +129,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Exposed Discord signature-verification status through startup output and `/reviewz`, and added reviewer coverage proving invalid/missing signatures are rejected while valid signed Discord requests still pass through the bridge.
 - Added a real OpenAI-compatible HTTP agent backend (`--agent openai`) with `--openai-api-key`, `--openai-base-url`, and `--openai-model`, so the bridge can talk to a non-mock agent without changing code.
 - Added executable reviewer coverage proving a webhook can route through the bridge into a mock OpenAI-compatible `/chat/completions` server and back to the channel, plus dry-run coverage for OpenAI agent startup wiring.
+- Added `agent_timeout_ms` / `--agent-timeout-ms` / `AGENTIM_AGENT_TIMEOUT_MS` so real agent backends cannot hang webhook handling indefinitely.
+- Exposed agent-timeout status through startup output and `/reviewz`, and added reviewer coverage proving slow agents now fail with `504 Gateway Timeout` without sending a channel reply.

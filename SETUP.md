@@ -96,6 +96,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_STATE_BACKUP_COUNT`
 - `AGENTIM_MAX_SESSION_MESSAGES`
 - `AGENTIM_CONTEXT_MESSAGE_LIMIT`
+- `AGENTIM_AGENT_TIMEOUT_MS`
 - `AGENTIM_WEBHOOK_SECRET`
 - `AGENTIM_WEBHOOK_SIGNING_SECRET`
 - `AGENTIM_WEBHOOK_MAX_SKEW_SECONDS`
@@ -145,12 +146,13 @@ AGENTIM_DRY_RUN=1 ./start.sh
 {
   "max_session_messages": 50,
   "context_message_limit": 12,
+  "agent_timeout_ms": 30000,
   "state_backup_count": 2
 }
 ```
 
-`max_session_messages` 控制 session 最终保留多少历史；`context_message_limit` 控制每次实际送进 agent 的上下文窗口。
-这样可以保留较长的本地会话历史，同时避免每轮都把全部历史塞给 agent。
+`max_session_messages` 控制 session 最终保留多少历史；`context_message_limit` 控制每次实际送进 agent 的上下文窗口；`agent_timeout_ms` 控制单次 agent 调用的最长耗时。
+这样可以保留较长的本地会话历史，同时避免每轮都把全部历史塞给 agent，也避免真实 agent backend 把 webhook 长时间挂死。
 如果主状态文件损坏，启动时还会尝试从最近的备份快照恢复。
 
 ## Webhook 路由

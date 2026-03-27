@@ -2,6 +2,7 @@ use crate::bots::discord::{discord_webhook_handler, DiscordMessage};
 use crate::bots::feishu::{feishu_webhook_handler, FeishuMessage};
 use crate::bots::qq::{qq_webhook_handler, QQMessage};
 use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
+use crate::error::AgentError;
 use crate::manager::AgentIM;
 use axum::{
     body::Bytes,
@@ -75,6 +76,7 @@ pub struct BotServerConfig {
     pub routing_rules: Vec<RoutingRule>,
     pub max_session_messages: Option<usize>,
     pub context_message_limit: usize,
+    pub agent_timeout_ms: Option<u64>,
     pub state_file: Option<String>,
     pub state_backup_count: usize,
     pub webhook_secret: Option<String>,
@@ -112,6 +114,7 @@ impl Default for BotServerConfig {
             routing_rules: Vec::new(),
             max_session_messages: None,
             context_message_limit: 10,
+            agent_timeout_ms: None,
             state_file: None,
             state_backup_count: 0,
             webhook_secret: None,
@@ -148,6 +151,7 @@ struct ReviewResponse {
     routing_rules: Vec<RoutingRule>,
     max_session_messages: Option<usize>,
     context_message_limit: usize,
+    agent_timeout_ms: Option<u64>,
     state_backup_count: usize,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
@@ -338,6 +342,13 @@ fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
     serde_json::from_slice(body).map_err(|err| err.to_string())
 }
 
+fn webhook_error_status(err: &AgentError) -> StatusCode {
+    match err {
+        AgentError::TimeoutError(_) => StatusCode::GATEWAY_TIMEOUT,
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
 async fn healthz(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -385,6 +396,7 @@ async fn reviewz(
                 routing_rules: Vec::new(),
                 max_session_messages: None,
                 context_message_limit: 10,
+                agent_timeout_ms: None,
                 state_backup_count: 0,
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
@@ -412,6 +424,7 @@ async fn reviewz(
             routing_rules: state.config.routing_rules.clone(),
             max_session_messages: state.config.max_session_messages,
             context_message_limit: state.config.context_message_limit,
+            agent_timeout_ms: state.config.agent_timeout_ms,
             state_backup_count: state.config.state_backup_count,
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
@@ -472,6 +485,7 @@ async fn telegram_webhook(
         &agent_id,
         state.config.max_session_messages,
         state.config.context_message_limit,
+        state.config.agent_timeout_ms,
         update,
     )
     .await
@@ -482,7 +496,7 @@ async fn telegram_webhook(
         },
         Err(err) => {
             tracing::error!("telegram webhook failed: {}", err);
-            (StatusCode::BAD_REQUEST, err.to_string())
+            (webhook_error_status(&err), err.to_string())
         }
     }
 }
@@ -522,6 +536,7 @@ async fn discord_webhook(
         &agent_id,
         state.config.max_session_messages,
         state.config.context_message_limit,
+        state.config.agent_timeout_ms,
         message,
     )
     .await
@@ -532,7 +547,7 @@ async fn discord_webhook(
         },
         Err(err) => {
             tracing::error!("discord webhook failed: {}", err);
-            (StatusCode::BAD_REQUEST, err.to_string())
+            (webhook_error_status(&err), err.to_string())
         }
     }
 }
@@ -586,6 +601,7 @@ async fn feishu_webhook(
         &agent_id,
         state.config.max_session_messages,
         state.config.context_message_limit,
+        state.config.agent_timeout_ms,
         message,
     )
     .await
@@ -596,7 +612,7 @@ async fn feishu_webhook(
         },
         Err(err) => {
             tracing::error!("feishu webhook failed: {}", err);
-            (StatusCode::BAD_REQUEST, err.to_string())
+            (webhook_error_status(&err), err.to_string())
         }
     }
 }
@@ -633,6 +649,7 @@ async fn qq_webhook(
         &agent_id,
         state.config.max_session_messages,
         state.config.context_message_limit,
+        state.config.agent_timeout_ms,
         message,
     )
     .await
@@ -643,7 +660,7 @@ async fn qq_webhook(
         },
         Err(err) => {
             tracing::error!("qq webhook failed: {}", err);
-            (StatusCode::BAD_REQUEST, err.to_string())
+            (webhook_error_status(&err), err.to_string())
         }
     }
 }

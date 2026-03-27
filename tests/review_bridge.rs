@@ -232,6 +232,28 @@ impl Agent for ContextWindowAgent {
     }
 }
 
+struct SlowAgent;
+
+#[async_trait]
+impl Agent for SlowAgent {
+    fn agent_type(&self) -> AgentType {
+        AgentType::Claude
+    }
+
+    fn id(&self) -> &str {
+        "slow-agent"
+    }
+
+    async fn send_message(&self, _messages: Vec<Message>) -> Result<String> {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        Ok("slow reply".to_string())
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn functionality_reviewer_routes_all_platform_webhooks() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
@@ -789,6 +811,47 @@ async fn routing_reviewer_matches_reply_target_prefix() {
         "general-room-2".to_string(),
         "discord:prefix default".to_string(),
     )));
+}
+
+#[tokio::test]
+async fn readiness_reviewer_times_out_slow_agent_requests() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+    agentim
+        .register_agent("default-agent".to_string(), Arc::new(SlowAgent))
+        .unwrap();
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            agent_timeout_ms: Some(10),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":4,"message":{"message_id":40,"chat":{"id":4040},"text":"too slow"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    assert!(sent_messages.lock().unwrap().is_empty());
+    let sessions = agentim.list_sessions();
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0].messages.is_empty());
 }
 
 #[tokio::test]
@@ -1618,6 +1681,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             telegram_agent_id: "default-agent".to_string(),
             max_session_messages: Some(6),
             context_message_limit: 4,
+            agent_timeout_ms: Some(25),
             state_file: Some("/tmp/agentim-status.json".to_string()),
             state_backup_count: 2,
             webhook_secret: Some("inspect".to_string()),
@@ -1663,6 +1727,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
     assert_eq!(review_json["max_session_messages"], 6);
     assert_eq!(review_json["context_message_limit"], 4);
+    assert_eq!(review_json["agent_timeout_ms"], 25);
     assert_eq!(review_json["state_backup_count"], 2);
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
@@ -1733,6 +1798,7 @@ fn usability_reviewer_loads_runtime_config_file() {
   "state_backup_count": 2,
   "max_session_messages": 4,
   "context_message_limit": 7,
+  "agent_timeout_ms": 250,
   "webhook_secret": "cfg-secret",
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
@@ -1756,6 +1822,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
     assert!(stdout.contains("Agent context window limited to 7 message"));
+    assert!(stdout.contains("Agent requests will time out after 250ms"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Telegram native webhook secret token enabled"));
     assert!(stdout.contains("Discord interaction signature verification enabled"));

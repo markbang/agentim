@@ -114,6 +114,7 @@ pub async fn discord_webhook_handler(
     agent_id: &str,
     max_session_messages: Option<usize>,
     context_message_limit: usize,
+    agent_timeout_ms: Option<u64>,
     message: DiscordMessage,
 ) -> Result<()> {
     let user_id = message.author.id;
@@ -121,7 +122,7 @@ pub async fn discord_webhook_handler(
     let content = message.content;
 
     agentim
-        .handle_incoming_message_with_limits(
+        .handle_incoming_message_with_runtime_limits(
             agent_id,
             DISCORD_CHANNEL_ID,
             &user_id,
@@ -129,6 +130,7 @@ pub async fn discord_webhook_handler(
             content,
             max_session_messages,
             context_message_limit,
+            agent_timeout_ms,
         )
         .await?;
 

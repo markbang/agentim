@@ -20,6 +20,9 @@ pub enum AgentError {
     #[error("Message send failed: {0}")]
     SendError(String),
 
+    #[error("Agent timed out: {0}")]
+    TimeoutError(String),
+
     #[error("Channel error: {0}")]
     ChannelError(String),
 

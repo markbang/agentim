@@ -36,7 +36,7 @@
 - 多平台 webhook 接入
 - 默认 agent + 按平台 agent override + 按用户规则路由
 - 统一 `Agent` / `Channel` trait
-- 自动 session 创建、复用、可选持久化（`--state-file`）、可选历史裁剪（`--max-session-messages`）与独立的 agent 上下文窗口（`--context-message-limit`）
+- 自动 session 创建、复用、可选持久化（`--state-file`）、可选历史裁剪（`--max-session-messages`）、独立的 agent 上下文窗口（`--context-message-limit`）和 agent 调用超时（`--agent-timeout-ms`）
 - 会话级 `reply_target` 管理
   - Telegram / Feishu 用用户标识回发
   - Discord / QQ 用 channel 标识回发
@@ -99,13 +99,14 @@ export TELEGRAM_TOKEN=your-token
 # export OPENAI_MODEL=gpt-4o-mini
 ```
 
-如果希望 session 在重启后恢复，并分别控制“保存多少历史”与“每次送进 agent 多少上下文”，可以再加：
+如果希望 session 在重启后恢复，并分别控制“保存多少历史”“每次送进 agent 多少上下文”以及“agent 最多跑多久”，可以再加：
 
 ```bash
 export AGENTIM_STATE_FILE=.agentim/sessions.json
 export AGENTIM_STATE_BACKUP_COUNT=2
 export AGENTIM_MAX_SESSION_MESSAGES=50
 export AGENTIM_CONTEXT_MESSAGE_LIMIT=12
+export AGENTIM_AGENT_TIMEOUT_MS=30000
 ```
 
 当主状态文件损坏时，启动时会自动尝试从最近的 `.bak.N` 快照恢复。

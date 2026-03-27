@@ -105,6 +105,10 @@ pub struct Args {
     #[arg(long)]
     pub context_message_limit: Option<usize>,
 
+    /// Fail a webhook round-trip if the selected agent does not answer within this many milliseconds
+    #[arg(long)]
+    pub agent_timeout_ms: Option<u64>,
+
     /// Require this shared secret in the x-agentim-secret header for all protected routes
     #[arg(long)]
     pub webhook_secret: Option<String>,

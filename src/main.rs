@@ -61,6 +61,7 @@ struct RuntimeConfig {
     state_backup_count: Option<usize>,
     max_session_messages: Option<usize>,
     context_message_limit: Option<usize>,
+    agent_timeout_ms: Option<u64>,
     webhook_secret: Option<String>,
     webhook_signing_secret: Option<String>,
     webhook_max_skew_seconds: Option<i64>,
@@ -208,6 +209,7 @@ async fn main() -> anyhow::Result<()> {
         .context_message_limit
         .or(runtime_config.context_message_limit)
         .unwrap_or(10);
+    let agent_timeout_ms = args.agent_timeout_ms.or(runtime_config.agent_timeout_ms);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let webhook_signing_secret = merge_option(
         args.webhook_signing_secret,
@@ -408,6 +410,12 @@ async fn main() -> anyhow::Result<()> {
         "Agent context window limited to {} message(s)",
         context_message_limit
     ));
+    if let Some(agent_timeout_ms) = agent_timeout_ms {
+        cli::print_info(&format!(
+            "Agent requests will time out after {}ms",
+            agent_timeout_ms
+        ));
+    }
 
     if webhook_signing_secret.is_some() {
         cli::print_info(&format!(
@@ -442,6 +450,7 @@ async fn main() -> anyhow::Result<()> {
         routing_rules,
         max_session_messages,
         context_message_limit,
+        agent_timeout_ms,
         state_file,
         state_backup_count,
         webhook_secret,
