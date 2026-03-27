@@ -1,91 +1,112 @@
-#!/bin/bash
-
-# AgentIM Startup Script
-# Simple installation and configuration
-
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
 AGENTIM_HOME="${AGENTIM_HOME:-.}"
-CONFIG_FILE="${AGENTIM_HOME}/agentim.json"
 BINARY="${AGENTIM_HOME}/target/release/agentim"
+AGENT="${AGENTIM_AGENT:-}"
+ADDR="${AGENTIM_ADDR:-}"
+DRY_RUN="${AGENTIM_DRY_RUN:-0}"
 
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║          AgentIM - Multi-Channel AI Agent Manager          ║"
-echo "║                    Startup Script                          ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
+args=()
+[[ -n "$AGENT" ]] && args+=(--agent "$AGENT")
+[[ -n "$ADDR" ]] && args+=(--addr "$ADDR")
 
-# Check if binary exists
-if [ ! -f "$BINARY" ]; then
-    echo "🔨 Building AgentIM..."
-    cargo build --release
-    echo "✅ Build complete"
-    echo ""
+[[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
+[[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
+[[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
+[[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
+[[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
+[[ -n "${OPENAI_API_KEY:-}" ]] && args+=(--openai-api-key "$OPENAI_API_KEY")
+[[ -n "${OPENAI_BASE_URL:-}" ]] && args+=(--openai-base-url "$OPENAI_BASE_URL")
+[[ -n "${OPENAI_MODEL:-}" ]] && args+=(--openai-model "$OPENAI_MODEL")
+[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && args+=(--openai-max-retries "$OPENAI_MAX_RETRIES")
+[[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
+[[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
+[[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
+[[ -n "${AGENTIM_CONTEXT_MESSAGE_LIMIT:-}" ]] && args+=(--context-message-limit "$AGENTIM_CONTEXT_MESSAGE_LIMIT")
+[[ -n "${AGENTIM_AGENT_TIMEOUT_MS:-}" ]] && args+=(--agent-timeout-ms "$AGENTIM_AGENT_TIMEOUT_MS")
+[[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && args+=(--webhook-secret "$AGENTIM_WEBHOOK_SECRET")
+[[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && args+=(--webhook-signing-secret "$AGENTIM_WEBHOOK_SIGNING_SECRET")
+[[ -n "${AGENTIM_WEBHOOK_MAX_SKEW_SECONDS:-}" ]] && args+=(--webhook-max-skew-seconds "$AGENTIM_WEBHOOK_MAX_SKEW_SECONDS")
+[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && args+=(--telegram-webhook-secret-token "$TELEGRAM_WEBHOOK_SECRET_TOKEN")
+[[ -n "${FEISHU_WEBHOOK_VERIFICATION_TOKEN:-}" ]] && args+=(--feishu-verification-token "$FEISHU_WEBHOOK_VERIFICATION_TOKEN")
+
+if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
+  args+=(--telegram-token "$TELEGRAM_TOKEN")
 fi
 
-# Check if config exists
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "📝 No configuration found. Starting interactive setup..."
-    echo ""
-    "$BINARY" interactive
-else
-    echo "📋 Loading configuration from $CONFIG_FILE"
-    echo ""
-
-    # Load agents from config
-    echo "📦 Registering agents..."
-    agents=$(jq -r '.agents[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$agents" ]; then
-        echo "$agents" | while read -r agent; do
-            id=$(echo "$agent" | jq -r '.id')
-            type=$(echo "$agent" | jq -r '.agent_type')
-            model=$(echo "$agent" | jq -r '.model // empty')
-
-            if [ -n "$model" ]; then
-                "$BINARY" agent register --id "$id" --agent-type "$type" --model "$model"
-            else
-                "$BINARY" agent register --id "$id" --agent-type "$type"
-            fi
-        done
-    fi
-
-    # Load channels from config
-    echo "📦 Registering channels..."
-    channels=$(jq -r '.channels[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$channels" ]; then
-        echo "$channels" | while read -r channel; do
-            id=$(echo "$channel" | jq -r '.id')
-            type=$(echo "$channel" | jq -r '.channel_type')
-            "$BINARY" channel register --id "$id" --channel-type "$type"
-        done
-    fi
-
-    # Load sessions from config
-    echo "📦 Creating sessions..."
-    sessions=$(jq -r '.sessions[]' "$CONFIG_FILE" 2>/dev/null || echo "")
-    if [ -n "$sessions" ]; then
-        echo "$sessions" | while read -r session; do
-            agent=$(echo "$session" | jq -r '.agent_id')
-            channel=$(echo "$session" | jq -r '.channel_id')
-            user=$(echo "$session" | jq -r '.user_id')
-            "$BINARY" session create --agent-id "$agent" --channel-id "$channel" --user-id "$user"
-        done
-    fi
+if [[ -n "${DISCORD_TOKEN:-}" ]]; then
+  args+=(--discord-token "$DISCORD_TOKEN")
 fi
 
-echo ""
-echo "📊 System Status:"
-"$BINARY" status
+if [[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]]; then
+  args+=(--discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY")
+fi
 
-echo ""
+if [[ -n "${FEISHU_APP_ID:-}" || -n "${FEISHU_APP_SECRET:-}" ]]; then
+  : "${FEISHU_APP_ID:?FEISHU_APP_ID must be set with FEISHU_APP_SECRET}"
+  : "${FEISHU_APP_SECRET:?FEISHU_APP_SECRET must be set with FEISHU_APP_ID}"
+  args+=(--feishu-app-id "$FEISHU_APP_ID" --feishu-app-secret "$FEISHU_APP_SECRET")
+elif [[ -n "${FEISHU_TOKEN:-}" ]]; then
+  args+=(--feishu-token "$FEISHU_TOKEN")
+fi
+
+if [[ -n "${QQ_BOT_ID:-}" || -n "${QQ_BOT_TOKEN:-}" ]]; then
+  : "${QQ_BOT_ID:?QQ_BOT_ID must be set with QQ_BOT_TOKEN}"
+  : "${QQ_BOT_TOKEN:?QQ_BOT_TOKEN must be set with QQ_BOT_ID}"
+  args+=(--qq-bot-id "$QQ_BOT_ID" --qq-bot-token "$QQ_BOT_TOKEN")
+elif [[ -n "${QQ_TOKEN:-}" ]]; then
+  args+=(--qq-token "$QQ_TOKEN")
+fi
+
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║                   Setup Complete! 🎉                       ║"
+echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
+echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
-echo ""
-echo "Next steps:"
-echo "  • Interactive mode:  $BINARY interactive"
-echo "  • View agents:       $BINARY agent list"
-echo "  • View channels:     $BINARY channel list"
-echo "  • View sessions:     $BINARY session list"
-echo "  • Send message:      $BINARY session send --session-id <id> --message '<msg>'"
-echo ""
+echo
+
+echo "Agent:   ${AGENT:-from config or binary default (claude)}"
+echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
+[[ -n "${OPENAI_BASE_URL:-}" ]] && echo "OpenAI base URL: ${OPENAI_BASE_URL}"
+[[ -n "${OPENAI_MODEL:-}" ]] && echo "OpenAI model: ${OPENAI_MODEL}"
+[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && echo "OpenAI retries: ${OPENAI_MAX_RETRIES}"
+[[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
+[[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
+[[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
+[[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]] && echo "Discord native signature: enabled"
+[[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
+[[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
+[[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
+[[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
+[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && echo "Telegram native secret: enabled"
+[[ -n "${FEISHU_WEBHOOK_VERIFICATION_TOKEN:-}" ]] && echo "Feishu verification token: enabled"
+[[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && echo "State backup rotation: ${AGENTIM_STATE_BACKUP_COUNT}"
+[[ -n "${AGENTIM_CONTEXT_MESSAGE_LIMIT:-}" ]] && echo "Agent context window: ${AGENTIM_CONTEXT_MESSAGE_LIMIT}"
+[[ -n "${AGENTIM_AGENT_TIMEOUT_MS:-}" ]] && echo "Agent timeout: ${AGENTIM_AGENT_TIMEOUT_MS}ms"
+echo
+
+echo "Command:"
+printf '  %q' "$BINARY" "${args[@]}" "$@"
+printf '\n\n'
+
+needs_build=0
+if [[ ! -x "$BINARY" ]]; then
+  needs_build=1
+elif [[ "$AGENTIM_HOME/Cargo.toml" -nt "$BINARY" || "$AGENTIM_HOME/Cargo.lock" -nt "$BINARY" ]]; then
+  needs_build=1
+elif find "$AGENTIM_HOME/src" -type f -newer "$BINARY" -print -quit | grep -q .; then
+  needs_build=1
+fi
+
+if [[ "$needs_build" == "1" ]]; then
+  echo "🔨 Release binary missing or stale. Building..."
+  cargo build --release
+  echo
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "AGENTIM_DRY_RUN=1 -> running binary --dry-run for offline validation."
+  exec "$BINARY" "${args[@]}" --dry-run "$@"
+fi
+
+exec "$BINARY" "${args[@]}" "$@"

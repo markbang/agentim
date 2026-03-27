@@ -7,6 +7,8 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+pub const QQ_CHANNEL_ID: &str = "qq-bot";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QQMessage {
     pub id: String,
@@ -114,28 +116,29 @@ impl Channel for QQBotChannel {
 }
 
 pub async fn qq_webhook_handler(
-    channel: Arc<QQBotChannel>,
     agentim: Arc<AgentIM>,
+    agent_id: &str,
+    max_session_messages: Option<usize>,
+    context_message_limit: usize,
+    agent_timeout_ms: Option<u64>,
     message: QQMessage,
 ) -> Result<()> {
-    let user_id = message.author.id.clone();
-    let content = message.content.clone();
-    let channel_id = message.channel_id.clone();
+    let user_id = message.author.id;
+    let reply_target = message.channel_id;
+    let content = message.content;
 
-    // Store the message
-    channel.add_pending_message(user_id.clone(), content.clone());
-
-    // Find sessions for this user
-    let sessions = agentim.list_sessions();
-    for session in sessions {
-        if session.user_id == user_id && session.channel_id == channel.id() {
-            // Send to agent
-            if let Ok(response) = agentim.send_to_agent(&session.id, content.clone()).await {
-                // Send response back to QQ
-                let _ = channel.send_message(&channel_id, &response).await;
-            }
-        }
-    }
+    agentim
+        .handle_incoming_message_with_runtime_limits(
+            agent_id,
+            QQ_CHANNEL_ID,
+            &user_id,
+            Some(&reply_target),
+            content,
+            max_session_messages,
+            context_message_limit,
+            agent_timeout_ms,
+        )
+        .await?;
 
     Ok(())
 }

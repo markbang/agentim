@@ -1,31 +1,41 @@
 {
-  "agents": [
+  "agent": "claude",
+  "telegram_agent": "pi",
+  "discord_agent": "codex",
+  "openai_api_key": "YOUR_OPENAI_API_KEY",
+  "openai_base_url": "https://api.openai.com/v1",
+  "openai_model": "gpt-4o-mini",
+  "openai_max_retries": 1,
+  "routing_rules": [
     {
-      "id": "claude-main",
-      "agent_type": "claude",
-      "model": "claude-3-5-sonnet-20241022"
+      "channel": "telegram",
+      "user_id": "vip-user",
+      "priority": 10,
+      "agent": "claude"
     },
     {
-      "id": "codex-main",
-      "agent_type": "codex",
-      "model": null
+      "channel": "discord",
+      "reply_target_prefix": "review-",
+      "priority": 1,
+      "agent": "pi"
     }
   ],
-  "channels": [
-    {
-      "id": "telegram-main",
-      "channel_type": "telegram"
-    },
-    {
-      "id": "discord-main",
-      "channel_type": "discord"
-    }
-  ],
-  "sessions": [
-    {
-      "agent_id": "claude-main",
-      "channel_id": "telegram-main",
-      "user_id": "user123"
-    }
-  ]
+  "telegram_token": "YOUR_TELEGRAM_TOKEN",
+  "telegram_webhook_secret_token": "YOUR_TELEGRAM_WEBHOOK_SECRET_TOKEN",
+  "feishu_verification_token": "YOUR_FEISHU_WEBHOOK_VERIFICATION_TOKEN",
+  "discord_token": "YOUR_DISCORD_TOKEN",
+  "discord_interaction_public_key": "YOUR_DISCORD_INTERACTION_PUBLIC_KEY",
+  "feishu_app_id": "YOUR_FEISHU_APP_ID",
+  "feishu_app_secret": "YOUR_FEISHU_APP_SECRET",
+  "qq_bot_id": "YOUR_QQ_BOT_ID",
+  "qq_bot_token": "YOUR_QQ_BOT_TOKEN",
+  "state_file": ".agentim/sessions.json",
+  "state_backup_count": 2,
+  "max_session_messages": 50,
+  "context_message_limit": 12,
+  "agent_timeout_ms": 30000,
+  "webhook_secret": "change-me",
+  "webhook_signing_secret": "change-me-signing",
+  "webhook_max_skew_seconds": 300,
+  "addr": "127.0.0.1:8080"
 }

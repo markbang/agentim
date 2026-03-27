@@ -1,9 +1,31 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
+use crate::manager::AgentIM;
 use async_trait::async_trait;
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+pub const TELEGRAM_CHANNEL_ID: &str = "telegram-bot";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramUpdate {
+    pub update_id: i64,
+    pub message: Option<TelegramMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramMessage {
+    pub message_id: i64,
+    pub chat: TelegramChat,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramChat {
+    pub id: i64,
+}
 
 pub struct TelegramBotChannel {
     id: String,
@@ -24,11 +46,23 @@ impl TelegramBotChannel {
     }
 
     pub async fn set_webhook(&self, webhook_url: &str) -> Result<()> {
+        self.set_webhook_with_secret(webhook_url, None).await
+    }
+
+    pub async fn set_webhook_with_secret(
+        &self,
+        webhook_url: &str,
+        secret_token: Option<&str>,
+    ) -> Result<()> {
         let client = reqwest::Client::new();
         let url = format!("{}/setWebhook", self.api_url);
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "url": webhook_url
         });
+
+        if let Some(secret_token) = secret_token {
+            params["secret_token"] = serde_json::Value::String(secret_token.to_string());
+        }
 
         client
             .post(&url)
@@ -99,4 +133,33 @@ impl Channel for TelegramBotChannel {
 
         Ok(())
     }
+}
+
+pub async fn telegram_webhook_handler(
+    agentim: Arc<AgentIM>,
+    agent_id: &str,
+    max_session_messages: Option<usize>,
+    context_message_limit: usize,
+    agent_timeout_ms: Option<u64>,
+    update: TelegramUpdate,
+) -> Result<()> {
+    if let Some(message) = update.message {
+        if let Some(text) = message.text {
+            let user_id = message.chat.id.to_string();
+            agentim
+                .handle_incoming_message_with_runtime_limits(
+                    agent_id,
+                    TELEGRAM_CHANNEL_ID,
+                    &user_id,
+                    Some(&user_id),
+                    text,
+                    max_session_messages,
+                    context_message_limit,
+                    agent_timeout_ms,
+                )
+                .await?;
+        }
+    }
+
+    Ok(())
 }

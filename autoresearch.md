@@ -1,0 +1,135 @@
+# Autoresearch: AgentIM usable multi-agent IM bridge
+
+## Objective
+Turn this repository into a genuinely usable IM bridge for multiple AI agents and multiple IM platforms. The target is not just "code exists"; the bridge must be runnable, internally coherent, and easy enough to evaluate and extend. The user specifically wants progress to be reviewed/evaluated continuously, so the loop must track both bridge functionality and reviewer/eval coverage.
+
+## Metrics
+- **Primary**: `completion_score` (unitless, higher is better) — weighted acceptance score for "usable multi-agent IM bridge".
+- **Secondary**:
+  - `dynamic_score` — points from commands/tests that execute successfully
+  - `routing_score` — points for webhook/routing/session bridging coverage
+  - `review_score` — points for built-in review/eval coverage
+  - `cargo_test_ok` — 1 if `cargo test --quiet` succeeds, else 0
+  - `help_ok` — 1 if `cargo run -- --help` succeeds, else 0
+  - `startup_ok` — 1 if `AGENTIM_DRY_RUN=1 ./start.sh` succeeds, else 0
+  - `route_count` — number of supported webhook routes detected
+
+## How to Run
+`./autoresearch.sh`
+
+The script must always print structured `METRIC ...` lines, even if the code is incomplete, so the loop can measure progress instead of crashing on every gap.
+
+## Files in Scope
+- `src/main.rs` — binary entrypoint and startup flow
+- `src/cli.rs` — CLI surface and ergonomics
+- `src/bot_server.rs` — webhook server / route wiring
+- `src/manager.rs` — agent/channel/session orchestration
+- `src/agent.rs` — agent abstractions and built-in adapters
+- `src/channel.rs` — channel abstractions and mock/local channels
+- `src/bots/*.rs` — concrete IM platform adapters and webhook handling
+- `src/session.rs` — session history/context model
+- `src/persistence.rs` — config/persistence support
+- `src/lib.rs` — exported public API
+- `examples/*.rs` — usage examples
+- `README.md`, `QUICK_START.md`, `SETUP.md`, `BOT_INTEGRATION.md`, `CLI_GUIDE.md` — user-facing docs that must match reality
+- `Cargo.toml` — dependency/config changes only if clearly justified
+
+## Off Limits
+- Do not fake platform support purely by editing docs.
+- Do not overfit to regex-only checks; prefer executable behavior and integration tests as soon as the project compiles.
+- Do not add heavyweight infrastructure or external services just to satisfy the benchmark.
+- Do not silently remove core multi-agent / multi-channel goals to make scoring easier.
+
+## Constraints
+- Prefer deterministic local tests over network-dependent checks.
+- Keep the benchmark honest: dynamic execution should dominate static/source-inspection scoring over time.
+- Preserve a simple path for a user to start the bridge locally.
+- Avoid breaking the existing library API unless the usability improvement is clearly worth it.
+- No benchmark cheating: score increases should correspond to real bridge capability.
+
+## Review Rubric
+The project is only "done" when most of the score comes from executable checks, not source inspection.
+
+1. **Functionality reviewer**
+   - The crate builds and tests pass.
+   - Incoming messages can be routed through the manager to an agent and back to a channel.
+   - Multiple IM adapters are wired coherently.
+2. **Usability reviewer**
+   - CLI/startup path is coherent.
+   - Docs match the actual commands.
+   - A newcomer can understand how to run the bridge.
+3. **Readiness reviewer**
+   - Bridge state/session behavior is sane.
+   - Progress can be evaluated repeatedly with minimal manual interpretation.
+
+## Current Understanding
+- The repo contains the right conceptual pieces, but the current binary/docs appear inconsistent.
+- `src/main.rs` is single-command bot-server startup, while several docs still describe a larger CRUD/interactive CLI.
+- `src/bot_server.rs` only wires Telegram right now.
+- There are concrete bot modules for Discord/Feishu/QQ, but the server/entrypoint does not yet expose them coherently.
+- `src/interactive.rs` appears to depend on CLI helpers that may no longer exist.
+- The first likely win is restoring buildability and creating an honest acceptance loop.
+
+## What's Been Tried
+- Session initialized by reading the repo, checking docs/code drift, and identifying likely compile/runtime gaps before the first benchmark.
+- Established a mixed dynamic/static benchmark in `autoresearch.sh` so progress is measurable even when features are incomplete.
+- Added a shared incoming-message bridge path in `AgentIM` that auto-creates sessions, stores per-session `reply_target`, routes to the selected agent, and sends the response back through the correct channel target.
+- Rewired `src/bot_server.rs` to expose Telegram, Discord, Feishu, and QQ webhook routes instead of Telegram-only routing.
+- Added executable reviewer coverage in `tests/review_bridge.rs` to validate multi-platform webhook routing, reply-target behavior, and session reuse.
+- Extended startup wiring so Discord/Feishu/QQ channels can be initialized coherently, with explicit credential flags plus backward-compatible compound-token fallbacks for Feishu/QQ.
+- Replaced the broken legacy `start.sh` flow with an environment-driven startup wrapper plus `AGENTIM_DRY_RUN=1` validation path.
+- Rewrote the main user docs (`README.md`, `QUICK_START.md`, `SETUP.md`, `BOT_INTEGRATION.md`) so they describe the real single-command runtime, current webhook routes, and the built-in review/eval loop.
+- Added per-platform agent routing for the binary via `BotServerConfig` and new CLI/startup overrides (`--telegram-agent`, `--discord-agent`, `--feishu-agent`, `--qq-agent`).
+- Added executable reviewer coverage proving that different webhook routes can be mapped to different registered agents and return different responses.
+- Wired optional session persistence into the runtime via `--state-file` / `AGENTIM_STATE_FILE`, restoring sessions on startup and saving them after successful webhook handling.
+- Added reviewer coverage for persistence so session history can survive a restart path instead of being purely in-memory.
+- Added an optional shared webhook secret (`--webhook-secret` / `AGENTIM_WEBHOOK_SECRET`) enforced via the `x-agentim-secret` header across webhook routes.
+- Added reviewer coverage for the shared-secret guard so protected routes reject missing/wrong secrets and still accept valid traffic.
+- Added lightweight ops/review endpoints (`GET /healthz`, `GET /reviewz`) that expose machine-readable runtime status, route-to-agent mapping, and whether persistence/security are enabled.
+- Added reviewer coverage for the ops/review endpoints so external automation can inspect bridge state without scraping logs.
+- Added a binary-level `--dry-run` mode so startup configuration can be validated without relying on `start.sh` or actually binding the webhook server.
+- Added reviewer coverage for binary dry-run behavior so the direct CLI path stays usable, not just the shell wrapper.
+- Added runtime JSON config loading via `--config-file` / `AGENTIM_CONFIG_FILE`, with CLI flags still taking precedence over file defaults.
+- Replaced the stale `agentim.json.example` with a config schema that matches the actual runtime and added reviewer coverage proving config-driven startup works.
+- Hardened session snapshot persistence by writing through a sibling temp file and renaming it into place instead of writing snapshots directly over the target path.
+- Added reviewer coverage for clean snapshot persistence so runtime saves leave a valid JSON file without lingering temp artifacts.
+- Added config-driven `routing_rules` so the binary can override platform-level routing for specific users without requiring code changes.
+- Exposed resolved routing rules through `/reviewz`, updated the runtime docs/examples, and added reviewer coverage proving user-level rules override the platform default route.
+- Extended `routing_rules` to match on `reply_target` as well, so Discord/QQ rooms or other reply destinations can be routed independently from the sender identity.
+- Added `max_session_messages` / `--max-session-messages` to bound session growth, wired it into webhook handling, surfaced it in `/reviewz`, and added reviewer coverage proving history trimming works.
+- Extended `routing_rules` further with prefix matching (`user_prefix`, `reply_target_prefix`) so groups of users/rooms can be mapped without enumerating every exact ID.
+- Updated examples/docs and added reviewer coverage proving prefix-based room routing overrides the platform default while unrelated rooms still fall back correctly.
+- Added optional HMAC-signed webhook verification with timestamp/nonce headers and replay protection (`--webhook-signing-secret`, `--webhook-max-skew-seconds`) on top of the simpler shared-secret guard.
+- Exposed signed-webhook status through `/reviewz`, updated startup/docs/examples, and added reviewer coverage proving missing/invalid signatures are rejected while valid signed requests pass exactly once.
+- Added a first platform-native verification adapter for Telegram via `--telegram-webhook-secret-token` / `TELEGRAM_WEBHOOK_SECRET_TOKEN`, enforced with `x-telegram-bot-api-secret-token`.
+- Updated Telegram bot setup support (`set_webhook_with_secret`), docs/startup/config, and reviewer coverage so Telegram-native secret-token protection is exercised end-to-end.
+- Made `routing_rules` deterministic with explicit `priority` support and specificity-aware selection when multiple rules match the same request.
+- Updated examples/docs and added reviewer coverage proving higher-priority exact rules beat broader prefix rules while non-overlapping traffic still follows the broader fallback.
+- Improved history trimming semantics so preserved `System` messages survive trimming when possible, instead of always dropping the oldest message blindly.
+- Added reviewer/unit coverage proving bounded-history mode still trims normal chat sessions while protecting an injected system prompt from being discarded too early.
+- Added deterministic `history_summary` metadata generation for trimmed-away non-system turns, and exposed that summary back to the agent as a synthetic leading `System` context message.
+- Added reviewer/unit coverage proving bounded-history sessions now keep a compact summary of earlier turns instead of losing all trimmed context outright.
+- Added `state_backup_count` / `--state-backup-count` so persisted session snapshots can rotate through backup files instead of keeping only the latest state.
+- Updated runtime/docs/examples and reviewer coverage so rotated backup snapshots are preserved as valid JSON while `/reviewz` reports the configured backup depth.
+- Added backup-aware restore logic so startup can fall back to the newest valid rotated snapshot when the primary state file is corrupt.
+- Added reviewer coverage proving rotated backup recovery works instead of failing hard on a broken primary snapshot.
+- Improved `history_summary` compaction so trimmed user/assistant turns are collapsed into deterministic `[turn] user => assistant` fragments rather than noisier per-message listings.
+- Added reviewer/unit coverage proving trimmed history summaries now preserve paired turn structure in a more compact form.
+- Added Feishu URL verification challenge handling on `/feishu`, so webhook onboarding can complete without routing the challenge payload through an agent.
+- Added reviewer coverage proving `type=url_verification` requests return the expected challenge response payload directly.
+- Fixed dry-run semantics so channel health checks are skipped in `--dry-run`, making offline startup validation work even with dummy multi-platform credentials.
+- Hardened `start.sh` so `AGENTIM_DRY_RUN=1` actually runs the current binary's `--dry-run` path and rebuilds the release binary when it is stale, instead of only validating shell argument assembly.
+- Added a separate `context_message_limit` runtime control (`--context-message-limit`, config file, and `AGENTIM_CONTEXT_MESSAGE_LIMIT`) so operators can keep longer local session history while constraining how much context each agent call receives.
+- Extended reviewer coverage to prove the context window limit affects the agent prompt without forcing session persistence/history retention to shrink to the same size.
+- Added a Feishu-native webhook verification token (`--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN`) enforced against the payload's `token` field, including challenge/onboarding requests.
+- Exposed Feishu verification-token status through startup output and `/reviewz`, and added reviewer coverage proving missing/wrong payload tokens are rejected while valid Feishu requests still pass.
+- Reworked `history_summary` truncation to drop whole oldest summary fragments and prepend a structured omission marker (`[summary] N older fragment(s) omitted`) instead of raw character-level tail slicing.
+- Added reviewer/unit coverage proving long bounded-history summaries now stay fragment-aligned and machine-readable instead of degrading into mid-fragment truncation.
+- Added a Discord-native interaction signature adapter (`--discord-interaction-public-key` / `DISCORD_INTERACTION_PUBLIC_KEY`) that verifies `x-signature-ed25519` + `x-signature-timestamp` against the raw request body before `/discord` payload handling.
+- Exposed Discord signature-verification status through startup output and `/reviewz`, and added reviewer coverage proving invalid/missing signatures are rejected while valid signed Discord requests still pass through the bridge.
+- Added a real OpenAI-compatible HTTP agent backend (`--agent openai`) with `--openai-api-key`, `--openai-base-url`, and `--openai-model`, so the bridge can talk to a non-mock agent without changing code.
+- Added executable reviewer coverage proving a webhook can route through the bridge into a mock OpenAI-compatible `/chat/completions` server and back to the channel, plus dry-run coverage for OpenAI agent startup wiring.
+- Added `agent_timeout_ms` / `--agent-timeout-ms` / `AGENTIM_AGENT_TIMEOUT_MS` so real agent backends cannot hang webhook handling indefinitely.
+- Exposed agent-timeout status through startup output and `/reviewz`, and added reviewer coverage proving slow agents now fail with `504 Gateway Timeout` without sending a channel reply.
+- Added OpenAI-compatible retry control (`--openai-max-retries` / `OPENAI_MAX_RETRIES`) so transient upstream 5xx/network failures can be retried without reworking the bridge.
+- Tightened upstream error classification so exhausted OpenAI/backend failures now surface as `502 Bad Gateway` instead of generic `400`, with reviewer coverage for retry success and upstream-failure reporting.

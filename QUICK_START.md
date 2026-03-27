@@ -1,165 +1,116 @@
-# AgentIM Quick Reference
+# AgentIM Quick Start
 
-## Installation & Setup
+## 30 秒启动
 
-### Build
+### 方式 1：直接运行
+
 ```bash
-cargo build --release
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
 ```
 
-### Quick Start (Interactive)
+如果你希望不同平台走不同 agent：
+
 ```bash
-./target/release/agentim interactive
+cargo run -- \
+  --agent claude \
+  --telegram-agent pi \
+  --discord-agent codex \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --discord-token "$DISCORD_TOKEN"
 ```
 
-### Production Setup
+如果你希望直接接一个真实 OpenAI-compatible agent backend：
+
 ```bash
-cp agentim.json.example agentim.json
-# Edit agentim.json
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
+  --telegram-token "$TELEGRAM_TOKEN"
+```
+
+Server 启动后会监听：
+- `POST /telegram`
+- `POST /discord`
+- `POST /feishu`
+- `POST /qq`
+
+### 方式 2：用 `start.sh`
+
+```bash
+export AGENTIM_CONFIG_FILE=agentim.json
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=https://api.openai.com/v1
+export OPENAI_MODEL=gpt-4o-mini
+export OPENAI_MAX_RETRIES=1
+export AGENTIM_STATE_FILE=.agentim/sessions.json
+export AGENTIM_STATE_BACKUP_COUNT=2
+export AGENTIM_MAX_SESSION_MESSAGES=50
+export AGENTIM_CONTEXT_MESSAGE_LIMIT=12
+export AGENTIM_AGENT_TIMEOUT_MS=30000
+export AGENTIM_WEBHOOK_SECRET=change-me
+export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
+export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
+export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
+export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
+export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
+export TELEGRAM_TOKEN=your-token
 ./start.sh
 ```
 
-## CLI Commands
-
-### Agents
-```bash
-agentim agent list                                    # List all agents
-agentim agent register --id <id> --agent-type <type> # Register agent
-agentim agent health --id <id>                        # Health check
-```
-
-Agent types: `claude`, `codex`, `pi`
-
-### Channels
-```bash
-agentim channel list                                      # List all channels
-agentim channel register --id <id> --channel-type <type> # Register channel
-agentim channel health --id <id>                         # Health check
-```
-
-Channel types: `telegram`, `discord`, `feishu`, `qq`
-
-### Sessions
-```bash
-agentim session list                                                    # List sessions
-agentim session create --agent-id <a> --channel-id <c> --user-id <u>  # Create session
-agentim session get --id <id>                                          # Get details
-agentim session send --session-id <id> --message "<msg>"              # Send message
-agentim session delete --id <id>                                       # Delete session
-```
-
-### System
-```bash
-agentim status      # View system status
-agentim interactive # Interactive mode
-```
-
-## Configuration File (agentim.json)
+如果你要把某个用户路由到特殊 agent，在 `agentim.json` 里加：
 
 ```json
 {
-  "agents": [
-    {
-      "id": "claude-main",
-      "agent_type": "claude",
-      "model": "claude-3-5-sonnet-20241022"
-    }
-  ],
-  "channels": [
-    {
-      "id": "telegram-main",
-      "channel_type": "telegram"
-    }
-  ],
-  "sessions": [
-    {
-      "agent_id": "claude-main",
-      "channel_id": "telegram-main",
-      "user_id": "user123"
-    }
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "pi"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "codex"}
   ]
 }
 ```
 
-## Message Flow
-
-```
-User Message
-    ↓
-./agentim session send --session-id <id> --message "..."
-    ↓
-Agent processes message with context
-    ↓
-Agent generates response
-    ↓
-Response sent to channel
-    ↓
-User receives response
-```
-
-## Example Workflow
+先 review 一下启动参数：
 
 ```bash
-# 1. Build
-cargo build --release
-
-# 2. Register agent
-./target/release/agentim agent register --id claude-1 --agent-type claude
-
-# 3. Register channel
-./target/release/agentim channel register --id tg-1 --channel-type telegram
-
-# 4. Create session
-SESSION=$(./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-1 \
-  --user-id user123 | grep -oP 'Session created: \K\S+')
-
-# 5. Send message
-./target/release/agentim session send \
-  --session-id $SESSION \
-  --message "What is 2+2?"
-
-# 6. Check status
-./target/release/agentim status
+AGENTIM_DRY_RUN=1 ./start.sh
+cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
-## Documentation
+`--dry-run` / `AGENTIM_DRY_RUN=1` 会跳过真实 IM 健康检查，适合离线验证配置。
+需要控制 prompt 窗口时，可额外设置 `AGENTIM_CONTEXT_MESSAGE_LIMIT` 或 `--context-message-limit`。
 
-- `README.md` - Project overview
-- `SETUP.md` - Detailed setup guide
-- `ARCHITECTURE.md` - Architecture details
-- `CLI_GUIDE.md` - CLI reference
-- `IMPLEMENTATION_SUMMARY.md` - What was implemented
+## 常用凭证
 
-## Key Features
-
-✅ Multi-agent support (Claude, Codex, Pi)
-✅ Multi-channel support (Telegram, Discord, Feishu, QQ)
-✅ Session-based message history
-✅ Interactive setup mode
-✅ Configuration file support
-✅ Health checks
-✅ Concurrent session handling
-✅ Production-ready
-
-## Troubleshooting
-
-### Build fails
 ```bash
-cargo clean
-cargo build --release
+export TELEGRAM_TOKEN=...
+export DISCORD_TOKEN=...
+export FEISHU_APP_ID=...
+export FEISHU_APP_SECRET=...
+export QQ_BOT_ID=...
+export QQ_BOT_TOKEN=...
 ```
 
-### Agent/Channel not found
-- Ensure you registered the agent/channel first
-- Check the ID matches exactly
+兼容旧格式：
 
-### Session creation fails
-- Verify agent and channel are registered
-- Check IDs are correct
+```bash
+export FEISHU_TOKEN="app_id:app_secret"
+export QQ_TOKEN="bot_id:bot_token"
+```
 
-### Message not sent
-- Verify session exists
-- Check agent and channel are healthy
-- View session details: `agentim session get --id <id>`
+## 快速验证
+
+```bash
+cargo test --test review_bridge
+./autoresearch.sh
+```
+
+这两个命令分别做：
+- **review**：验证核心 webhook/session/reply-target 行为
+- **eval**：输出结构化 acceptance metrics

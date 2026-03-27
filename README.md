@@ -1,111 +1,224 @@
-# AgentIM - Multi-Channel AI Agent Manager
+# AgentIM
 
-一个用Rust编写的优雅的多channel AI agent管理系统。AgentIM提供了一个统一的框架来管理多个AI代理（Claude、Codex、Pi）和多个通讯渠道（Telegram、Discord、Feishu、QQ），同时优雅地管理用户会话和上下文。
+一个用 Rust 编写的 IM bridge，用来把多个 AI agent 接到多个 IM 平台上，并统一管理 session、上下文和回复目标。
 
-## 核心设计理念
+当前仓库有两层能力：
 
-AgentIM是一个**纯粹的会话和上下文管理框架**，而不是一个API网关。它的职责是：
+1. **库能力**：`AgentIM` 提供 agent/channel/session 抽象，适合二次开发。
+2. **可运行二进制**：`agentim` 启动一个 webhook server，把收到的 IM 消息转给一个默认 agent，再把回复发回对应平台。
 
-- ✅ 管理Agent和Channel的注册
-- ✅ 维护用户会话和消息历史
-- ✅ 提供优雅的上下文管理
-- ✅ 支持并发会话处理
+> 当前二进制会注册一个默认 agent，并支持两级路由：
+> 1. 按平台覆盖：`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`
+> 2. 按配置规则覆盖：`routing_rules`（可按用户/目标/前缀匹配，并支持 `priority`）
+>
+> 更复杂的 workspace / 组织级策略路由，仍然更适合直接用库层扩展。
 
-它**不负责**：
-- ❌ 调用外部API（由使用者负责）
-- ❌ 存储持久化（可扩展）
-- ❌ 消息路由（由使用者实现）
+## 当前支持
 
-## 架构设计
+### Agents
+- Claude（本地模拟）
+- Codex（本地模拟）
+- Pi（本地模拟）
+- OpenAI-compatible HTTP backend（真实 `/chat/completions` 适配）
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      AgentIM Core                        │
-├─────────────────────────────────────────────────────────┤
-│                                                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
-│  │   Agents     │  │  Channels    │  │  Sessions    │   │
-│  ├──────────────┤  ├──────────────┤  ├──────────────┤   │
-│  │ • Claude     │  │ • Telegram   │  │ • Context    │   │
-│  │ • Codex      │  │ • Discord    │  │ • History    │   │
-│  │ • Pi         │  │ • Feishu     │  │ • Metadata   │   │
-│  │              │  │ • QQ         │  │              │   │
-│  └──────────────┘  └──────────────┘  └──────────────┘   │
-│                                                           │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │         Session Manager (DashMap)                │   │
-│  │  - 并发安全的session存储                          │   │
-│  │  - 自动上下文管理                                │   │
-│  │  - 消息历史追踪                                  │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                           │
-└─────────────────────────────────────────────────────────┘
-         │                          │
-         ▼                          ▼
-    ┌─────────────┐          ┌──────────────┐
-    │   Your      │          │   Your       │
-    │   Agent     │          │   Channel    │
-    │   Logic     │          │   Logic      │
-    └─────────────┘          └──────────────┘
-```
+### IM Channels / Webhook Routes
+- Telegram → `POST /telegram`
+- Discord → `POST /discord`
+- Feishu / Lark → `POST /feishu`（支持 URL verification challenge）
+- QQ → `POST /qq`
 
-## 核心特性
+### Review / Ops Endpoints
+- Health → `GET /healthz`
+- Review snapshot → `GET /reviewz`
 
-### 1. 多Agent支持
-- **Claude**: 本地模拟实现（可扩展为真实API调用）
-- **Codex**: 本地模拟实现（可扩展为真实API调用）
-- **Pi**: 本地模拟实现（可扩展为真实API调用）
-- 易于添加新的Agent类型
+## 关键特性
 
-### 2. 多Channel支持
-- **Telegram**: 本地模拟实现
-- **Discord**: 本地模拟实现
-- **Feishu/Lark**: 本地模拟实现
-- **QQ**: 本地模拟实现
-- 易于添加新的Channel类型
-
-### 3. 优雅的Session管理
-- 每个用户-agent-channel组合维护独立session
-- 自动上下文管理（可配置历史消息数量）
-- 消息持久化支持（可扩展）
-- 元数据支持
-
-### 4. 并发安全
-- 使用`DashMap`实现无锁并发
-- 支持高并发场景
-- 线程安全的Agent和Channel trait
-
-### 5. 易于扩展
-- Trait-based设计
-- 易于添加新的Agent和Channel类型
-- 易于集成真实API
+- 多平台 webhook 接入
+- 默认 agent + 按平台 agent override + 按用户规则路由
+- 统一 `Agent` / `Channel` trait
+- 自动 session 创建、复用、可选持久化（`--state-file`）、可选历史裁剪（`--max-session-messages`）、独立的 agent 上下文窗口（`--context-message-limit`）和 agent 调用超时（`--agent-timeout-ms`）
+- 会话级 `reply_target` 管理
+  - Telegram / Feishu 用用户标识回发
+  - Discord / QQ 用 channel 标识回发
+- `DashMap` 驱动的并发 session 管理
+- 可执行的 review / eval 回归测试
 
 ## 快速开始
 
-### 方式1：交互式设置（推荐）
+### 1. 直接运行
 
 ```bash
-cargo build --release
-./target/release/agentim interactive
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
 ```
 
-这将引导你完成：
-1. 注册AI agents（Claude、Codex、Pi）
-2. 注册通讯渠道（Telegram、Discord、Feishu、QQ）
-3. 创建agent和channel之间的会话
-4. 测试消息流
-
-### 方式2：配置文件
+也可以同时启用多个平台，并给不同平台绑定不同 agent：
 
 ```bash
-cp agentim.json.example agentim.json
-# 编辑 agentim.json 配置你的agents和channels
+cargo run -- \
+  --agent claude \
+  --telegram-agent pi \
+  --discord-agent codex \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --discord-token "$DISCORD_TOKEN" \
+  --feishu-app-id "$FEISHU_APP_ID" \
+  --feishu-app-secret "$FEISHU_APP_SECRET" \
+  --qq-bot-id "$QQ_BOT_ID" \
+  --qq-bot-token "$QQ_BOT_TOKEN"
+```
+
+如果你想把默认 agent 直接接到真实 OpenAI-compatible backend：
+
+```bash
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
+  --telegram-token "$TELEGRAM_TOKEN"
+```
+
+### 2. 使用 `start.sh`
+
+`start.sh` 是当前推荐的启动包装脚本，读取环境变量后拼出真实命令。
+你也可以提供 `AGENTIM_CONFIG_FILE=agentim.json`，让 JSON 配置作为默认值，再由命令行 / 环境变量覆盖。
+
+```bash
+export AGENTIM_CONFIG_FILE=agentim.json
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export TELEGRAM_TOKEN=your-token
 ./start.sh
+
+# 或改成真实 OpenAI-compatible backend
+# export AGENTIM_AGENT=openai
+# export OPENAI_API_KEY=...
+# export OPENAI_BASE_URL=https://api.openai.com/v1
+# export OPENAI_MODEL=gpt-4o-mini
+# export OPENAI_MAX_RETRIES=1
 ```
 
-详见 [SETUP.md](SETUP.md) 获取完整指南。
+如果希望 session 在重启后恢复，并分别控制“保存多少历史”“每次送进 agent 多少上下文”以及“agent 最多跑多久”，可以再加：
 
-## 核心特性
+```bash
+export AGENTIM_STATE_FILE=.agentim/sessions.json
+export AGENTIM_STATE_BACKUP_COUNT=2
+export AGENTIM_MAX_SESSION_MESSAGES=50
+export AGENTIM_CONTEXT_MESSAGE_LIMIT=12
+export AGENTIM_AGENT_TIMEOUT_MS=30000
+```
+
+当主状态文件损坏时，启动时会自动尝试从最近的 `.bak.N` 快照恢复。
+
+如果希望所有受保护路由都需要共享密钥：
+
+```bash
+export AGENTIM_WEBHOOK_SECRET=change-me
+# 请求时带上 x-agentim-secret: change-me
+```
+
+如果希望 webhook 使用带时间戳/nonce 的 HMAC 签名校验：
+
+```bash
+export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
+export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
+# 请求头:
+#   x-agentim-timestamp
+#   x-agentim-nonce
+#   x-agentim-signature=sha256(<hmac>)
+```
+
+如果你在 Telegram 上想启用原生 secret token 校验：
+
+```bash
+export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
+# Telegram 会发送 x-telegram-bot-api-secret-token
+```
+
+如果你在 Discord 上想启用原生 interaction 签名校验：
+
+```bash
+export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
+# /discord 会校验 x-signature-ed25519 + x-signature-timestamp
+```
+
+如果你在 Feishu 上想启用平台自带的 payload token 校验：
+
+```bash
+export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
+# /feishu 会校验请求体里的 token 字段
+```
+
+先做 dry-run 看启动配置是否正确：
+
+```bash
+AGENTIM_DRY_RUN=1 ./start.sh
+# 或直接
+cargo run -- --dry-run --agent claude --telegram-agent pi
+```
+
+现在 dry-run 会跳过真实 channel 健康检查，因此可以离线验证多平台启动参数与凭证格式。
+
+### 3. 凭证参数
+
+```text
+--telegram-token
+--discord-token
+--feishu-app-id --feishu-app-secret
+--qq-bot-id --qq-bot-token
+```
+
+兼容旧格式：
+- `--feishu-token app_id:app_secret`
+- `--qq-token bot_id:bot_token`
+
+额外的 provider-native webhook 校验参数：
+- `--telegram-webhook-secret-token`
+- `--discord-interaction-public-key`
+- `--feishu-verification-token`
+
+## 消息桥接流程
+
+```text
+Incoming webhook
+  -> parse platform payload
+  -> find_or_create_session(agent, channel, user)
+  -> store reply_target in session metadata
+  -> send context to agent
+  -> send agent response back through the correct channel target
+```
+
+这意味着 Discord / QQ 这类“用户 ID 和回复 channel ID 不同”的平台，也能走统一桥接路径。
+另外，运行时 JSON 配置里的 `routing_rules` 可以把特定平台上的特定用户、特定 `reply_target`（如 Discord / QQ 频道），或者一组带相同前缀的 `reply_target` 定向到不同 agent。
+
+## Review / Eval
+
+用户要求这个 bridge 在迭代过程中持续被 review 和 eval，所以仓库内置了两层检查：
+
+### 1. Reviewer tests
+
+```bash
+cargo test --test review_bridge
+```
+
+覆盖点：
+- 四个平台 webhook 都可进入统一路由
+- `reply_target` 对 Discord / QQ 生效
+- 同一用户+平台复用 session
+- 平台默认 agent 可被用户级 routing rule 覆盖
+
+### 2. Autoresearch acceptance loop
+
+```bash
+./autoresearch.sh
+```
+
+它会输出结构化 `METRIC ...` 行，用于跟踪 bridge 的可用性、路由覆盖和 review 覆盖，而不是只看“代码是不是存在”。
+
+## 最小库示例
 
 ```rust
 use agentim::{AgentIM, agent::ClaudeAgent, channel::TelegramChannel};
@@ -115,208 +228,50 @@ use std::sync::Arc;
 async fn main() -> anyhow::Result<()> {
     let agentim = AgentIM::new();
 
-    // 注册Agent
-    let claude = Arc::new(ClaudeAgent::new("claude-1".to_string(), None));
-    agentim.register_agent("claude-1".to_string(), claude)?;
+    agentim.register_agent(
+        "claude-main".to_string(),
+        Arc::new(ClaudeAgent::new("claude-main".to_string(), None)),
+    )?;
 
-    // 注册Channel
-    let telegram = Arc::new(TelegramChannel::new("tg-1".to_string()));
-    agentim.register_channel("tg-1".to_string(), telegram)?;
+    agentim.register_channel(
+        "telegram-main".to_string(),
+        Arc::new(TelegramChannel::new("telegram-main".to_string())),
+    )?;
 
-    // 创建Session
     let session_id = agentim.create_session(
-        "claude-1".to_string(),
-        "tg-1".to_string(),
+        "claude-main".to_string(),
+        "telegram-main".to_string(),
         "user123".to_string(),
     )?;
 
-    // 发送消息到Agent
-    let response = agentim.send_to_agent(&session_id, "Hello!".to_string()).await?;
-
-    // 发送响应到Channel
+    let response = agentim
+        .send_to_agent(&session_id, "Hello!".to_string())
+        .await?;
     agentim.send_to_channel(&session_id, response).await?;
 
     Ok(())
 }
 ```
 
-### CLI使用
-
-```bash
-# 注册Agent
-./target/release/agentim agent register --id claude-1 --agent-type claude
-
-# 注册Channel
-./target/release/agentim channel register --id tg-1 --channel-type telegram
-
-# 创建Session
-./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-1 \
-  --user-id user123
-
-# 查看系统状态
-./target/release/agentim status
-```
-
-## API文档
-
-### AgentIM
-
-核心管理器，负责Agent、Channel和Session的生命周期管理。
-
-```rust
-// Agent管理
-pub fn register_agent(&self, id: String, agent: Arc<dyn Agent>) -> Result<()>
-pub fn get_agent(&self, id: &str) -> Result<Arc<dyn Agent>>
-pub fn list_agents(&self) -> Vec<String>
-
-// Channel管理
-pub fn register_channel(&self, id: String, channel: Arc<dyn Channel>) -> Result<()>
-pub fn get_channel(&self, id: &str) -> Result<Arc<dyn Channel>>
-pub fn list_channels(&self) -> Vec<String>
-
-// Session管理
-pub fn create_session(&self, agent_id: String, channel_id: String, user_id: String) -> Result<String>
-pub fn get_session(&self, id: &str) -> Result<Session>
-pub fn update_session(&self, id: &str, session: Session) -> Result<()>
-pub fn list_sessions(&self) -> Vec<Session>
-pub fn delete_session(&self, id: &str) -> Result<()>
-
-// 消息流
-pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String>
-pub async fn send_to_channel(&self, session_id: &str, message: String) -> Result<()>
-
-// 健康检查
-pub async fn health_check(&self) -> Result<()>
-```
-
-### Session
-
-维护用户与Agent的对话上下文。
-
-```rust
-pub struct Session {
-    pub id: String,
-    pub agent_id: String,
-    pub channel_id: String,
-    pub user_id: String,
-    pub messages: VecDeque<Message>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub metadata: HashMap<String, String>,
-}
-
-impl Session {
-    pub fn new(agent_id: String, channel_id: String, user_id: String) -> Self
-    pub fn add_message(&mut self, role: MessageRole, content: String)
-    pub fn get_context(&self, max_messages: usize) -> Vec<Message>
-    pub fn clear_history(&mut self)
-}
-```
-
-## 扩展指南
-
-### 添加真实的Agent实现
-
-```rust
-use async_trait::async_trait;
-use agentim::agent::Agent;
-use agentim::config::AgentType;
-use agentim::session::Message;
-use agentim::error::Result;
-
-pub struct MyRealAgent {
-    id: String,
-    api_key: String,
-}
-
-#[async_trait]
-impl Agent for MyRealAgent {
-    fn agent_type(&self) -> AgentType {
-        AgentType::Claude
-    }
-
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        // 调用真实API
-        let client = reqwest::Client::new();
-        // ... 实现API调用
-        Ok("response".to_string())
-    }
-
-    async fn health_check(&self) -> Result<()> {
-        Ok(())
-    }
-}
-```
-
-### 添加真实的Channel实现
-
-```rust
-use async_trait::async_trait;
-use agentim::channel::{Channel, ChannelMessage};
-use agentim::config::ChannelType;
-use agentim::error::Result;
-
-pub struct MyRealChannel {
-    id: String,
-    credentials: String,
-}
-
-#[async_trait]
-impl Channel for MyRealChannel {
-    fn channel_type(&self) -> ChannelType {
-        ChannelType::Telegram
-    }
-
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
-        // 调用真实API
-        Ok(())
-    }
-
-    async fn receive_message(&self) -> Result<Option<ChannelMessage>> {
-        Ok(None)
-    }
-
-    async fn health_check(&self) -> Result<()> {
-        Ok(())
-    }
-}
-```
-
-## 性能特性
-
-- **并发安全**: 使用DashMap实现无锁并发，支持高并发场景
-- **内存高效**: VecDeque用于消息历史，支持自动清理
-- **异步优先**: 所有I/O操作都是异步的，基于Tokio
-- **可扩展**: 易于添加新的Agent和Channel类型
-
 ## 测试
 
 ```bash
-# 运行所有测试
 cargo test
-
-# 运行特定测试
-cargo test session::tests
-
-# 运行示例
+cargo test --test review_bridge
 cargo run --example basic
 cargo run --example session_management
 ```
 
-## 许可证
+## 当前边界
 
-MIT
+- 内置 agent 仍是本地模拟实现
+- 当前二进制是“单默认 agent”模式，不是完整的多 agent 动态路由器
+- session 持久化还没有接到真正的存储后端
+- webhook 签名校验 / 更完整的生产安全配置还没做完
 
-## 贡献
+## 相关文档
 
-欢迎提交Issue和Pull Request！
+- `QUICK_START.md` — 最快启动方式
+- `SETUP.md` — 环境变量和部署方式
+- `BOT_INTEGRATION.md` — 各平台 webhook / 凭证说明
+- `ARCHITECTURE.md` — 模块结构

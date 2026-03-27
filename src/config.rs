@@ -14,6 +14,7 @@ pub enum AgentType {
     Claude,
     Codex,
     Pi,
+    OpenAI,
 }
 
 impl std::fmt::Display for AgentType {
@@ -22,6 +23,7 @@ impl std::fmt::Display for AgentType {
             AgentType::Claude => write!(f, "claude"),
             AgentType::Codex => write!(f, "codex"),
             AgentType::Pi => write!(f, "pi"),
+            AgentType::OpenAI => write!(f, "openai"),
         }
     }
 }
