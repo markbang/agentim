@@ -29,6 +29,10 @@ pub struct Args {
     #[arg(long)]
     pub feishu_app_secret: Option<String>,
 
+    /// Native Feishu webhook verification token expected in the payload's token field
+    #[arg(long)]
+    pub feishu_verification_token: Option<String>,
+
     /// Deprecated fallback: QQ credentials as "bot_id:bot_token"
     #[arg(long)]
     pub qq_token: Option<String>,

@@ -117,6 +117,13 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # Telegram 会发送 x-telegram-bot-api-secret-token
 ```
 
+如果你在 Feishu 上想启用平台自带的 payload token 校验：
+
+```bash
+export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
+# /feishu 会校验请求体里的 token 字段
+```
+
 先做 dry-run 看启动配置是否正确：
 
 ```bash
@@ -139,6 +146,10 @@ cargo run -- --dry-run --agent claude --telegram-agent pi
 兼容旧格式：
 - `--feishu-token app_id:app_secret`
 - `--qq-token bot_id:bot_token`
+
+额外的 provider-native webhook 校验参数：
+- `--telegram-webhook-secret-token`
+- `--feishu-verification-token`
 
 ## 消息桥接流程
 

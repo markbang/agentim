@@ -43,6 +43,7 @@ cargo run -- \
 ```
 
 首次接 webhook 时，`/feishu` 现在会直接处理 `type=url_verification` challenge。
+如需额外校验，也可以配置 `--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN`。
 
 ### QQ
 
@@ -84,6 +85,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_WEBHOOK_SIGNING_SECRET`
 - `AGENTIM_WEBHOOK_MAX_SKEW_SECONDS`
 - `TELEGRAM_WEBHOOK_SECRET_TOKEN`
+- `FEISHU_WEBHOOK_VERIFICATION_TOKEN`
 - `TELEGRAM_AGENT`
 - `DISCORD_AGENT`
 - `FEISHU_AGENT`

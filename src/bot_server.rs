@@ -80,6 +80,7 @@ pub struct BotServerConfig {
     pub webhook_signing_secret: Option<String>,
     pub webhook_max_skew_seconds: i64,
     pub telegram_webhook_secret_token: Option<String>,
+    pub feishu_verification_token: Option<String>,
 }
 
 impl BotServerConfig {
@@ -115,6 +116,7 @@ impl Default for BotServerConfig {
             webhook_signing_secret: None,
             webhook_max_skew_seconds: 300,
             telegram_webhook_secret_token: None,
+            feishu_verification_token: None,
         }
     }
 }
@@ -149,6 +151,7 @@ struct ReviewResponse {
     webhook_signing_enabled: bool,
     webhook_max_skew_seconds: i64,
     telegram_webhook_secret_token_enabled: bool,
+    feishu_verification_token_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -271,6 +274,22 @@ fn authorize_telegram_secret_token(headers: &HeaderMap, state: &AppState) -> Res
     Ok(())
 }
 
+fn authorize_feishu_verification_token(body: &Bytes, state: &AppState) -> Result<(), String> {
+    let Some(expected) = state.config.feishu_verification_token.as_deref() else {
+        return Ok(());
+    };
+
+    let value = serde_json::from_slice::<serde_json::Value>(body)
+        .map_err(|_| "invalid feishu webhook payload".to_string())?;
+    let provided = value.get("token").and_then(|value| value.as_str());
+
+    if provided != Some(expected) {
+        return Err("missing or invalid Feishu verification token".to_string());
+    }
+
+    Ok(())
+}
+
 fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
     serde_json::from_slice(body).map_err(|err| err.to_string())
 }
@@ -328,6 +347,7 @@ async fn reviewz(
                 webhook_signing_enabled: false,
                 webhook_max_skew_seconds: 0,
                 telegram_webhook_secret_token_enabled: false,
+                feishu_verification_token_enabled: false,
             }),
         );
     }
@@ -356,6 +376,7 @@ async fn reviewz(
                 .config
                 .telegram_webhook_secret_token
                 .is_some(),
+            feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
         }),
     )
 }
@@ -473,6 +494,9 @@ async fn feishu_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_feishu_verification_token(&body, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
 

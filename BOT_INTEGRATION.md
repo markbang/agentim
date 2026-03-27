@@ -94,6 +94,13 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # 请求需要带 x-telegram-bot-api-secret-token: tg-native-secret
 ```
 
+Feishu 也支持按 payload 里的原生 token 做校验：
+
+```bash
+export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
+# /feishu 会校验 JSON body 里的 token 字段
+```
+
 如果你希望 session 历史不会无限增长，并把送给 agent 的上下文窗口与本地保留历史解耦：
 
 ```bash
@@ -134,6 +141,7 @@ export AGENTIM_STATE_BACKUP_COUNT=2
 - 参数：`--feishu-app-id --feishu-app-secret`
 - 兼容旧格式：`--feishu-token app_id:app_secret`
 - 支持 `type=url_verification` challenge 直返 challenge 响应，便于 webhook 首次接入
+- 支持 `--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN` 校验 payload 里的 `token`
 
 ### QQ
 - 回复目标：`channel_id`

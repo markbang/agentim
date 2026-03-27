@@ -1267,6 +1267,61 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 }
 
 #[tokio::test]
+async fn security_reviewer_accepts_feishu_verification_token_only_when_payload_token_matches() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            feishu_verification_token: Some("feishu-native".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/feishu")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"type":"url_verification","challenge":"verify-me"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let wrong = app
+        .clone()
+        .oneshot(
+            Request::post("/feishu")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"token":"wrong","ts":"1","uuid":"u1","event":{"message":{"chat_id":"chat","sender_id":{"user_id":"feishu-user"},"content":"hello"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+
+    let ok = app
+        .clone()
+        .oneshot(
+            Request::post("/feishu")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"token":"feishu-native","ts":"1","uuid":"u2","event":{"message":{"chat_id":"chat","sender_id":{"user_id":"feishu-user"},"content":"hello"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn security_reviewer_accepts_telegram_secret_token_only_when_header_matches() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1370,6 +1425,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
             telegram_webhook_secret_token: Some("tg-inspect".to_string()),
+            feishu_verification_token: Some("fei-inspect".to_string()),
             ..BotServerConfig::default()
         },
     );
@@ -1413,6 +1469,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["webhook_signing_enabled"], true);
     assert_eq!(review_json["webhook_max_skew_seconds"], 120);
     assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
+    assert_eq!(review_json["feishu_verification_token_enabled"], true);
 }
 
 #[test]
@@ -1456,6 +1513,7 @@ fn usability_reviewer_loads_runtime_config_file() {
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
   "telegram_webhook_secret_token": "tg-config",
+  "feishu_verification_token": "fei-config",
   "addr": "127.0.0.1:9090"
 }"#;
     std::fs::write(&config_path, config).unwrap();
@@ -1475,6 +1533,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Agent context window limited to 7 message"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Telegram native webhook secret token enabled"));
+    assert!(stdout.contains("Feishu webhook verification token enabled"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);

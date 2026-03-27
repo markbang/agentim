@@ -49,6 +49,7 @@ struct RuntimeConfig {
     feishu_token: Option<String>,
     feishu_app_id: Option<String>,
     feishu_app_secret: Option<String>,
+    feishu_verification_token: Option<String>,
     qq_token: Option<String>,
     qq_bot_id: Option<String>,
     qq_bot_token: Option<String>,
@@ -142,6 +143,10 @@ async fn main() -> anyhow::Result<()> {
     let feishu_token = merge_option(args.feishu_token, runtime_config.feishu_token);
     let feishu_app_id = merge_option(args.feishu_app_id, runtime_config.feishu_app_id);
     let feishu_app_secret = merge_option(args.feishu_app_secret, runtime_config.feishu_app_secret);
+    let feishu_verification_token = merge_option(
+        args.feishu_verification_token,
+        runtime_config.feishu_verification_token,
+    );
     let qq_token = merge_option(args.qq_token, runtime_config.qq_token);
     let qq_bot_id = merge_option(args.qq_bot_id, runtime_config.qq_bot_id);
     let qq_bot_token = merge_option(args.qq_bot_token, runtime_config.qq_bot_token);
@@ -350,6 +355,9 @@ async fn main() -> anyhow::Result<()> {
     if telegram_webhook_secret_token.is_some() {
         cli::print_info("Telegram native webhook secret token enabled");
     }
+    if feishu_verification_token.is_some() {
+        cli::print_info("Feishu webhook verification token enabled");
+    }
 
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
@@ -373,6 +381,7 @@ async fn main() -> anyhow::Result<()> {
         webhook_signing_secret,
         webhook_max_skew_seconds,
         telegram_webhook_secret_token,
+        feishu_verification_token,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;

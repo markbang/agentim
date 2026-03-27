@@ -121,3 +121,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Hardened `start.sh` so `AGENTIM_DRY_RUN=1` actually runs the current binary's `--dry-run` path and rebuilds the release binary when it is stale, instead of only validating shell argument assembly.
 - Added a separate `context_message_limit` runtime control (`--context-message-limit`, config file, and `AGENTIM_CONTEXT_MESSAGE_LIMIT`) so operators can keep longer local session history while constraining how much context each agent call receives.
 - Extended reviewer coverage to prove the context window limit affects the agent prompt without forcing session persistence/history retention to shrink to the same size.
+- Added a Feishu-native webhook verification token (`--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN`) enforced against the payload's `token` field, including challenge/onboarding requests.
+- Exposed Feishu verification-token status through startup output and `/reviewz`, and added reviewer coverage proving missing/wrong payload tokens are rejected while valid Feishu requests still pass.
