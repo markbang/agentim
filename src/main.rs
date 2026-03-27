@@ -10,7 +10,7 @@ mod error;
 mod manager;
 mod session;
 
-use agent::{ClaudeAgent, CodexAgent, PiAgent};
+use agent::{ClaudeAgent, CodexAgent, OpenAiCompatibleAgent, PiAgent};
 use bot_server::{BotServerConfig, RoutingRule};
 use bots::{
     DiscordBotChannel, FeishuBotChannel, QQBotChannel, TelegramBotChannel, DISCORD_CHANNEL_ID,
@@ -41,6 +41,9 @@ struct RuntimeConfig {
     discord_agent: Option<String>,
     feishu_agent: Option<String>,
     qq_agent: Option<String>,
+    openai_api_key: Option<String>,
+    openai_base_url: Option<String>,
+    openai_model: Option<String>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
@@ -90,17 +93,53 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
-fn build_agent(id: &str, agent_type: &str) -> anyhow::Result<Arc<dyn agent::Agent>> {
+#[derive(Clone, Default)]
+struct AgentRuntimeOptions {
+    openai_api_key: Option<String>,
+    openai_base_url: Option<String>,
+    openai_model: Option<String>,
+}
+
+fn build_agent(
+    id: &str,
+    agent_type: &str,
+    options: &AgentRuntimeOptions,
+) -> anyhow::Result<Arc<dyn agent::Agent>> {
     match agent_type {
         "claude" => Ok(Arc::new(ClaudeAgent::new(id.to_string(), None))),
         "codex" => Ok(Arc::new(CodexAgent::new(id.to_string(), None))),
         "pi" => Ok(Arc::new(PiAgent::new(id.to_string()))),
+        "openai" => {
+            let api_key = options
+                .openai_api_key
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("openai agent requires --openai-api-key"))?;
+            let base_url = options
+                .openai_base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let model = options
+                .openai_model
+                .clone()
+                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+            Ok(Arc::new(OpenAiCompatibleAgent::new(
+                id.to_string(),
+                api_key,
+                base_url,
+                model,
+            )))
+        }
         other => Err(anyhow::anyhow!("Unknown agent type: {}", other)),
     }
 }
 
-fn register_agent_variant(agentim: &AgentIM, id: &str, agent_type: &str) -> anyhow::Result<()> {
-    let agent = build_agent(id, agent_type)?;
+fn register_agent_variant(
+    agentim: &AgentIM,
+    id: &str,
+    agent_type: &str,
+    options: &AgentRuntimeOptions,
+) -> anyhow::Result<()> {
+    let agent = build_agent(id, agent_type, options)?;
     agentim.register_agent(id.to_string(), agent)?;
     Ok(())
 }
@@ -109,13 +148,14 @@ fn ensure_rule_agent(
     agentim: &AgentIM,
     registered_rule_agents: &mut HashMap<String, String>,
     agent_type: &str,
+    options: &AgentRuntimeOptions,
 ) -> anyhow::Result<String> {
     if let Some(agent_id) = registered_rule_agents.get(agent_type) {
         return Ok(agent_id.clone());
     }
 
     let agent_id = format!("rule-agent-{}", agent_type);
-    register_agent_variant(agentim, &agent_id, agent_type)?;
+    register_agent_variant(agentim, &agent_id, agent_type, options)?;
     registered_rule_agents.insert(agent_type.to_string(), agent_id.clone());
     Ok(agent_id)
 }
@@ -140,6 +180,9 @@ async fn main() -> anyhow::Result<()> {
         args.telegram_webhook_secret_token,
         runtime_config.telegram_webhook_secret_token,
     );
+    let openai_api_key = merge_option(args.openai_api_key, runtime_config.openai_api_key);
+    let openai_base_url = merge_option(args.openai_base_url, runtime_config.openai_base_url);
+    let openai_model = merge_option(args.openai_model, runtime_config.openai_model);
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -177,11 +220,22 @@ async fn main() -> anyhow::Result<()> {
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
-    register_agent_variant(&agentim, "default-agent", &default_agent_type)?;
+    let agent_runtime_options = AgentRuntimeOptions {
+        openai_api_key,
+        openai_base_url,
+        openai_model,
+    };
+
+    register_agent_variant(
+        &agentim,
+        "default-agent",
+        &default_agent_type,
+        &agent_runtime_options,
+    )?;
     cli::print_success(&format!("Default agent '{}' registered", default_agent_type));
 
     let telegram_agent_id = if let Some(agent_type) = telegram_agent.as_deref() {
-        register_agent_variant(&agentim, "telegram-agent", agent_type)?;
+        register_agent_variant(&agentim, "telegram-agent", agent_type, &agent_runtime_options)?;
         cli::print_info(&format!("Telegram traffic -> {} agent", agent_type));
         "telegram-agent".to_string()
     } else {
@@ -189,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let discord_agent_id = if let Some(agent_type) = discord_agent.as_deref() {
-        register_agent_variant(&agentim, "discord-agent", agent_type)?;
+        register_agent_variant(&agentim, "discord-agent", agent_type, &agent_runtime_options)?;
         cli::print_info(&format!("Discord traffic -> {} agent", agent_type));
         "discord-agent".to_string()
     } else {
@@ -197,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let feishu_agent_id = if let Some(agent_type) = feishu_agent.as_deref() {
-        register_agent_variant(&agentim, "feishu-agent", agent_type)?;
+        register_agent_variant(&agentim, "feishu-agent", agent_type, &agent_runtime_options)?;
         cli::print_info(&format!("Feishu traffic -> {} agent", agent_type));
         "feishu-agent".to_string()
     } else {
@@ -205,7 +259,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let qq_agent_id = if let Some(agent_type) = qq_agent.as_deref() {
-        register_agent_variant(&agentim, "qq-agent", agent_type)?;
+        register_agent_variant(&agentim, "qq-agent", agent_type, &agent_runtime_options)?;
         cli::print_info(&format!("QQ traffic -> {} agent", agent_type));
         "qq-agent".to_string()
     } else {
@@ -217,7 +271,12 @@ async fn main() -> anyhow::Result<()> {
         .routing_rules
         .into_iter()
         .map(|rule| {
-            let agent_id = ensure_rule_agent(&agentim, &mut registered_rule_agents, &rule.agent)?;
+            let agent_id = ensure_rule_agent(
+                &agentim,
+                &mut registered_rule_agents,
+                &rule.agent,
+                &agent_runtime_options,
+            )?;
             Ok(RoutingRule {
                 channel: rule.channel,
                 user_id: rule.user_id,

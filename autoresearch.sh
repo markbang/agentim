@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --discord-interaction-public-key --feishu-token --feishu-app-id --feishu-app-secret --feishu-verification-token --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --config-file --dry-run --state-file --state-backup-count --max-session-messages --context-message-limit --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
+  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --discord-interaction-public-key --feishu-token --feishu-app-id --feishu-app-secret --feishu-verification-token --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --openai-api-key --openai-base-url --openai-model --config-file --dry-run --state-file --state-backup-count --max-session-messages --context-message-limit --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -51,6 +51,15 @@ start_status=$?
 set -e
 if [ "$start_status" -eq 0 ]; then
   startup_ok=1
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge functionality_reviewer_bridges_webhooks_to_openai_compatible_agent \
+  >/tmp/agentim-openai-agent-test.out 2>/tmp/agentim-openai-agent-test.err
+openai_agent_test_status=$?
+set -e
+if [ "$openai_agent_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -253,6 +262,15 @@ if [ "$ops_test_status" -eq 0 ]; then
 fi
 
 set +e
+cargo test --quiet --test review_bridge usability_reviewer_dry_run_accepts_openai_compatible_agent_config \
+  >/tmp/agentim-openai-dry-run-test.out 2>/tmp/agentim-openai-dry-run-test.err
+openai_dry_run_test_status=$?
+set -e
+if [ "$openai_dry_run_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
 cargo test --quiet --test review_bridge usability_reviewer_binary_dry_run_exits_cleanly \
   >/tmp/agentim-dry-run-test.out 2>/tmp/agentim-dry-run-test.err
 dry_run_test_status=$?
@@ -367,6 +385,12 @@ if [ "$startup_ok" -ne 1 ]; then
   echo '--- start.sh dry-run tail ---'
   tail -20 /tmp/agentim-start.err 2>/dev/null || true
   tail -20 /tmp/agentim-start.out 2>/dev/null || true
+fi
+
+if [ "$openai_agent_test_status" -ne 0 ]; then
+  echo '--- openai-agent review test tail ---'
+  tail -20 /tmp/agentim-openai-agent-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-openai-agent-test.out 2>/dev/null || true
 fi
 
 if [ "$multi_agent_test_status" -ne 0 ]; then
@@ -499,6 +523,12 @@ if [ "$ops_test_status" -ne 0 ]; then
   echo '--- ops review test tail ---'
   tail -20 /tmp/agentim-ops-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-ops-test.out 2>/dev/null || true
+fi
+
+if [ "$openai_dry_run_test_status" -ne 0 ]; then
+  echo '--- openai dry-run review test tail ---'
+  tail -20 /tmp/agentim-openai-dry-run-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-openai-dry-run-test.out 2>/dev/null || true
 fi
 
 if [ "$dry_run_test_status" -ne 0 ]; then

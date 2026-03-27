@@ -127,3 +127,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer/unit coverage proving long bounded-history summaries now stay fragment-aligned and machine-readable instead of degrading into mid-fragment truncation.
 - Added a Discord-native interaction signature adapter (`--discord-interaction-public-key` / `DISCORD_INTERACTION_PUBLIC_KEY`) that verifies `x-signature-ed25519` + `x-signature-timestamp` against the raw request body before `/discord` payload handling.
 - Exposed Discord signature-verification status through startup output and `/reviewz`, and added reviewer coverage proving invalid/missing signatures are rejected while valid signed Discord requests still pass through the bridge.
+- Added a real OpenAI-compatible HTTP agent backend (`--agent openai`) with `--openai-api-key`, `--openai-base-url`, and `--openai-model`, so the bridge can talk to a non-mock agent without changing code.
+- Added executable reviewer coverage proving a webhook can route through the bridge into a mock OpenAI-compatible `/chat/completions` server and back to the channel, plus dry-run coverage for OpenAI agent startup wiring.

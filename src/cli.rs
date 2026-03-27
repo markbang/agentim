@@ -49,7 +49,7 @@ pub struct Args {
     #[arg(long)]
     pub qq_bot_token: Option<String>,
 
-    /// Default agent type to use (claude, codex, pi) when no channel-specific override is set
+    /// Default agent type to use (claude, codex, pi, openai) when no channel-specific override is set
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -68,6 +68,18 @@ pub struct Args {
     /// Agent override for QQ traffic
     #[arg(long)]
     pub qq_agent: Option<String>,
+
+    /// API key for the built-in OpenAI-compatible HTTP agent backend
+    #[arg(long)]
+    pub openai_api_key: Option<String>,
+
+    /// Base URL for the built-in OpenAI-compatible HTTP agent backend
+    #[arg(long)]
+    pub openai_base_url: Option<String>,
+
+    /// Model name for the built-in OpenAI-compatible HTTP agent backend
+    #[arg(long)]
+    pub openai_model: Option<String>,
 
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]

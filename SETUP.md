@@ -4,7 +4,7 @@
 
 当前 `agentim` 二进制会：
 
-1. 选择一个默认 agent（`--agent`）
+1. 选择一个默认 agent（`--agent`，支持 `claude` / `codex` / `pi` / `openai`）
 2. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
 3. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
 4. 注册你提供凭证的 IM channel
@@ -22,6 +22,17 @@ cargo run -- \
   --agent claude \
   --telegram-token "$TELEGRAM_TOKEN" \
   --addr 0.0.0.0:8080
+```
+
+### OpenAI-compatible backend
+
+```bash
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-token "$TELEGRAM_TOKEN"
 ```
 
 ### Discord
@@ -78,6 +89,9 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_CONFIG_FILE`
 - `AGENTIM_AGENT`
 - `AGENTIM_ADDR`
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `OPENAI_MODEL`
 - `AGENTIM_STATE_FILE`
 - `AGENTIM_STATE_BACKUP_COUNT`
 - `AGENTIM_MAX_SESSION_MESSAGES`

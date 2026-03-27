@@ -1,7 +1,19 @@
 use crate::config::AgentType;
-use crate::error::Result;
+use crate::error::{AgentError, Result};
 use crate::session::Message;
 use async_trait::async_trait;
+
+fn openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .map(|message| {
+            serde_json::json!({
+                "role": message.role.to_string(),
+                "content": message.content,
+            })
+        })
+        .collect()
+}
 
 #[async_trait]
 pub trait Agent: Send + Sync {
@@ -114,6 +126,76 @@ impl Agent for PiAgent {
     }
 
     async fn health_check(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// OpenAI-compatible Agent - 调用兼容 /chat/completions 的 HTTP backend
+pub struct OpenAiCompatibleAgent {
+    id: String,
+    api_key: String,
+    base_url: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl OpenAiCompatibleAgent {
+    pub fn new(id: String, api_key: String, base_url: String, model: String) -> Self {
+        Self {
+            id,
+            api_key,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            model,
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl Agent for OpenAiCompatibleAgent {
+    fn agent_type(&self) -> AgentType {
+        AgentType::OpenAI
+    }
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+        let response = self
+            .client
+            .post(format!("{}/chat/completions", self.base_url))
+            .bearer_auth(&self.api_key)
+            .json(&serde_json::json!({
+                "model": self.model,
+                "messages": openai_messages(&messages),
+            }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+
+        response["choices"]
+            .get(0)
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_str())
+            .map(|content| content.to_string())
+            .ok_or_else(|| {
+                AgentError::ApiError(
+                    "OpenAI-compatible response missing choices[0].message.content".to_string(),
+                )
+            })
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        self.client
+            .get(format!("{}/models", self.base_url))
+            .bearer_auth(&self.api_key)
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(())
     }
 }

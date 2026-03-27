@@ -1,4 +1,4 @@
-use agentim::agent::Agent;
+use agentim::agent::{Agent, OpenAiCompatibleAgent};
 use agentim::bot_server::{
     create_bot_router, create_bot_router_with_config, BotServerConfig, RoutingRule,
 };
@@ -12,6 +12,8 @@ use async_trait::async_trait;
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
+    routing::{get, post},
+    Json, Router,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
@@ -175,6 +177,36 @@ fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> A
     agentim
 }
 
+async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new()
+        .route(
+            "/v1/chat/completions",
+            post(|Json(payload): Json<serde_json::Value>| async move {
+                let last_content = payload["messages"]
+                    .as_array()
+                    .and_then(|messages| messages.last())
+                    .and_then(|message| message.get("content"))
+                    .and_then(|content| content.as_str())
+                    .unwrap_or_default();
+                Json(serde_json::json!({
+                    "choices": [{"message": {"content": format!("openai:{}", last_content)}}]
+                }))
+            }),
+        )
+        .route(
+            "/v1/models",
+            get(|| async { Json(serde_json::json!({"data": [{"id": "gpt-4o-mini"}]})) }),
+        );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (format!("http://{}/v1", addr), handle)
+}
+
 struct ContextWindowAgent;
 
 #[async_trait]
@@ -334,6 +366,54 @@ async fn usability_reviewer_reuses_session_per_user_and_channel() {
     let sessions = agentim.list_sessions();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].messages.len(), 4);
+}
+
+#[tokio::test]
+async fn functionality_reviewer_bridges_webhooks_to_openai_compatible_agent() {
+    let (base_url, server_handle) = spawn_openai_mock_server().await;
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+    agentim
+        .register_agent(
+            "default-agent".to_string(),
+            Arc::new(OpenAiCompatibleAgent::new(
+                "default-agent".to_string(),
+                "test-key".to_string(),
+                base_url,
+                "gpt-4o-mini".to_string(),
+            )),
+        )
+        .unwrap();
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+    let app = create_bot_router(agentim);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":101,"message":{"message_id":1001,"chat":{"id":4242},"text":"hello openai"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "4242".to_string(),
+        "openai:hello openai".to_string(),
+    )));
+
+    server_handle.abort();
 }
 
 #[tokio::test]
@@ -1591,6 +1671,29 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
     assert_eq!(review_json["discord_interaction_public_key_enabled"], true);
     assert_eq!(review_json["feishu_verification_token_enabled"], true);
+}
+
+#[test]
+fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args([
+            "--dry-run",
+            "--agent",
+            "openai",
+            "--openai-api-key",
+            "test-key",
+            "--openai-base-url",
+            "http://127.0.0.1:18080/v1",
+            "--openai-model",
+            "gpt-4o-mini",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'openai' registered"));
+    assert!(stdout.contains("Dry run complete"));
 }
 
 #[test]

@@ -19,6 +19,7 @@
 - Claude（本地模拟）
 - Codex（本地模拟）
 - Pi（本地模拟）
+- OpenAI-compatible HTTP backend（真实 `/chat/completions` 适配）
 
 ### IM Channels / Webhook Routes
 - Telegram → `POST /telegram`
@@ -68,6 +69,17 @@ cargo run -- \
   --qq-bot-token "$QQ_BOT_TOKEN"
 ```
 
+如果你想把默认 agent 直接接到真实 OpenAI-compatible backend：
+
+```bash
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-token "$TELEGRAM_TOKEN"
+```
+
 ### 2. 使用 `start.sh`
 
 `start.sh` 是当前推荐的启动包装脚本，读取环境变量后拼出真实命令。
@@ -79,6 +91,12 @@ export AGENTIM_AGENT=claude
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
 ./start.sh
+
+# 或改成真实 OpenAI-compatible backend
+# export AGENTIM_AGENT=openai
+# export OPENAI_API_KEY=...
+# export OPENAI_BASE_URL=https://api.openai.com/v1
+# export OPENAI_MODEL=gpt-4o-mini
 ```
 
 如果希望 session 在重启后恢复，并分别控制“保存多少历史”与“每次送进 agent 多少上下文”，可以再加：
