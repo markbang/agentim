@@ -77,6 +77,7 @@ cargo run -- \
   --openai-api-key "$OPENAI_API_KEY" \
   --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
   --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
   --telegram-token "$TELEGRAM_TOKEN"
 ```
 
@@ -97,6 +98,7 @@ export TELEGRAM_TOKEN=your-token
 # export OPENAI_API_KEY=...
 # export OPENAI_BASE_URL=https://api.openai.com/v1
 # export OPENAI_MODEL=gpt-4o-mini
+# export OPENAI_MAX_RETRIES=1
 ```
 
 如果希望 session 在重启后恢复，并分别控制“保存多少历史”“每次送进 agent 多少上下文”以及“agent 最多跑多久”，可以再加：

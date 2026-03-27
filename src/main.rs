@@ -44,6 +44,7 @@ struct RuntimeConfig {
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
+    openai_max_retries: Option<usize>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
@@ -99,6 +100,7 @@ struct AgentRuntimeOptions {
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
+    openai_max_retries: Option<usize>,
 }
 
 fn build_agent(
@@ -123,12 +125,10 @@ fn build_agent(
                 .openai_model
                 .clone()
                 .unwrap_or_else(|| "gpt-4o-mini".to_string());
-            Ok(Arc::new(OpenAiCompatibleAgent::new(
-                id.to_string(),
-                api_key,
-                base_url,
-                model,
-            )))
+            Ok(Arc::new(
+                OpenAiCompatibleAgent::new(id.to_string(), api_key, base_url, model)
+                    .with_max_retries(options.openai_max_retries.unwrap_or(0)),
+            ))
         }
         other => Err(anyhow::anyhow!("Unknown agent type: {}", other)),
     }
@@ -184,6 +184,9 @@ async fn main() -> anyhow::Result<()> {
     let openai_api_key = merge_option(args.openai_api_key, runtime_config.openai_api_key);
     let openai_base_url = merge_option(args.openai_base_url, runtime_config.openai_base_url);
     let openai_model = merge_option(args.openai_model, runtime_config.openai_model);
+    let openai_max_retries = args
+        .openai_max_retries
+        .or(runtime_config.openai_max_retries);
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -226,6 +229,7 @@ async fn main() -> anyhow::Result<()> {
         openai_api_key,
         openai_base_url,
         openai_model,
+        openai_max_retries,
     };
 
     register_agent_variant(
@@ -235,6 +239,12 @@ async fn main() -> anyhow::Result<()> {
         &agent_runtime_options,
     )?;
     cli::print_success(&format!("Default agent '{}' registered", default_agent_type));
+    if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
+        cli::print_info(&format!(
+            "OpenAI-compatible backend retries set to {}",
+            openai_max_retries
+        ));
+    }
 
     let telegram_agent_id = if let Some(agent_type) = telegram_agent.as_deref() {
         register_agent_variant(&agentim, "telegram-agent", agent_type, &agent_runtime_options)?;

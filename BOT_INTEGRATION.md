@@ -40,6 +40,7 @@ cargo run -- \
   --openai-api-key "$OPENAI_API_KEY" \
   --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
   --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
   --telegram-token "$TELEGRAM_TOKEN"
 ```
 
@@ -201,4 +202,4 @@ cargo test --test review_bridge
 - webhook 入口必须走 HTTPS
 - 需要继续补齐剩余平台签名校验
 - 真实部署建议把 session 存储外置
-- 当前内置 `claude` / `codex` / `pi` agent 仍是本地模拟实现；如果要接真实模型，优先使用现已提供的 OpenAI-compatible backend 适配
+- 当前内置 `claude` / `codex` / `pi` agent 仍是本地模拟实现；如果要接真实模型，优先使用现已提供的 OpenAI-compatible backend 适配，并结合超时/重试参数控制上游失败行为

@@ -136,6 +136,7 @@ pub struct OpenAiCompatibleAgent {
     api_key: String,
     base_url: String,
     model: String,
+    max_retries: usize,
     client: reqwest::Client,
 }
 
@@ -146,8 +147,14 @@ impl OpenAiCompatibleAgent {
             api_key,
             base_url: base_url.trim_end_matches('/').to_string(),
             model,
+            max_retries: 0,
             client: reqwest::Client::new(),
         }
+    }
+
+    pub fn with_max_retries(mut self, max_retries: usize) -> Self {
+        self.max_retries = max_retries;
+        self
     }
 }
 
@@ -162,31 +169,59 @@ impl Agent for OpenAiCompatibleAgent {
     }
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
-            .json(&serde_json::json!({
-                "model": self.model,
-                "messages": openai_messages(&messages),
-            }))
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<serde_json::Value>()
-            .await?;
+        let payload = serde_json::json!({
+            "model": self.model,
+            "messages": openai_messages(&messages),
+        });
 
-        response["choices"]
-            .get(0)
-            .and_then(|choice| choice.get("message"))
-            .and_then(|message| message.get("content"))
-            .and_then(|content| content.as_str())
-            .map(|content| content.to_string())
-            .ok_or_else(|| {
-                AgentError::ApiError(
-                    "OpenAI-compatible response missing choices[0].message.content".to_string(),
-                )
-            })
+        for attempt in 0..=self.max_retries {
+            let response = self
+                .client
+                .post(format!("{}/chat/completions", self.base_url))
+                .bearer_auth(&self.api_key)
+                .json(&payload)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) if response.status().is_success() => {
+                    let response = response.json::<serde_json::Value>().await?;
+                    return response["choices"]
+                        .get(0)
+                        .and_then(|choice| choice.get("message"))
+                        .and_then(|message| message.get("content"))
+                        .and_then(|content| content.as_str())
+                        .map(|content| content.to_string())
+                        .ok_or_else(|| {
+                            AgentError::ApiError(
+                                "OpenAI-compatible response missing choices[0].message.content"
+                                    .to_string(),
+                            )
+                        });
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    if status.is_server_error() && attempt < self.max_retries {
+                        continue;
+                    }
+                    return Err(AgentError::ApiError(format!(
+                        "OpenAI-compatible request failed with {}: {}",
+                        status, body
+                    )));
+                }
+                Err(err) => {
+                    if attempt < self.max_retries {
+                        continue;
+                    }
+                    return Err(err.into());
+                }
+            }
+        }
+
+        Err(AgentError::Unknown(
+            "OpenAI-compatible retry loop exited unexpectedly".to_string(),
+        ))
     }
 
     async fn health_check(&self) -> Result<()> {

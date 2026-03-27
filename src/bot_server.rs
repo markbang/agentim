@@ -345,6 +345,9 @@ fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
 fn webhook_error_status(err: &AgentError) -> StatusCode {
     match err {
         AgentError::TimeoutError(_) => StatusCode::GATEWAY_TIMEOUT,
+        AgentError::ApiError(_) | AgentError::HttpError(_) | AgentError::ChannelError(_) => {
+            StatusCode::BAD_GATEWAY
+        }
         _ => StatusCode::BAD_REQUEST,
     }
 }

@@ -32,6 +32,7 @@ cargo run -- \
   --openai-api-key "$OPENAI_API_KEY" \
   --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
   --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
   --telegram-token "$TELEGRAM_TOKEN"
 ```
 
@@ -92,6 +93,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
+- `OPENAI_MAX_RETRIES`
 - `AGENTIM_STATE_FILE`
 - `AGENTIM_STATE_BACKUP_COUNT`
 - `AGENTIM_MAX_SESSION_MESSAGES`

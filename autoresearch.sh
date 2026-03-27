@@ -30,7 +30,7 @@ set -e
 if [ "$help_status" -eq 0 ]; then
   help_ok=1
   required_flags=0
-  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --discord-interaction-public-key --feishu-token --feishu-app-id --feishu-app-secret --feishu-verification-token --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --openai-api-key --openai-base-url --openai-model --config-file --dry-run --state-file --state-backup-count --max-session-messages --context-message-limit --agent-timeout-ms --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
+  for flag in --telegram-token --telegram-webhook-secret-token --discord-token --discord-interaction-public-key --feishu-token --feishu-app-id --feishu-app-secret --feishu-verification-token --qq-token --qq-bot-id --qq-bot-token --agent --telegram-agent --discord-agent --feishu-agent --qq-agent --openai-api-key --openai-base-url --openai-model --openai-max-retries --config-file --dry-run --state-file --state-backup-count --max-session-messages --context-message-limit --agent-timeout-ms --webhook-secret --webhook-signing-secret --webhook-max-skew-seconds --addr; do
     if grep -q -- "$flag" /tmp/agentim-help.out; then
       required_flags=$((required_flags + 1))
     fi
@@ -60,6 +60,15 @@ cargo test --quiet --test review_bridge functionality_reviewer_bridges_webhooks_
 openai_agent_test_status=$?
 set -e
 if [ "$openai_agent_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge functionality_reviewer_retries_transient_openai_backend_failures \
+  >/tmp/agentim-openai-retry-test.out 2>/tmp/agentim-openai-retry-test.err
+openai_retry_test_status=$?
+set -e
+if [ "$openai_retry_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -105,6 +114,15 @@ cargo test --quiet --test review_bridge routing_reviewer_prefers_higher_priority
 routing_priority_test_status=$?
 set -e
 if [ "$routing_priority_test_status" -eq 0 ]; then
+  dynamic_score=$((dynamic_score + 8))
+fi
+
+set +e
+cargo test --quiet --test review_bridge readiness_reviewer_surfaces_upstream_agent_failures_as_bad_gateway \
+  >/tmp/agentim-agent-bad-gateway-test.out 2>/tmp/agentim-agent-bad-gateway-test.err
+agent_bad_gateway_test_status=$?
+set -e
+if [ "$agent_bad_gateway_test_status" -eq 0 ]; then
   dynamic_score=$((dynamic_score + 8))
 fi
 
@@ -402,6 +420,12 @@ if [ "$openai_agent_test_status" -ne 0 ]; then
   tail -20 /tmp/agentim-openai-agent-test.out 2>/dev/null || true
 fi
 
+if [ "$openai_retry_test_status" -ne 0 ]; then
+  echo '--- openai-retry review test tail ---'
+  tail -20 /tmp/agentim-openai-retry-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-openai-retry-test.out 2>/dev/null || true
+fi
+
 if [ "$multi_agent_test_status" -ne 0 ]; then
   echo '--- multi-agent review test tail ---'
   tail -20 /tmp/agentim-multi-agent-test.err 2>/dev/null || true
@@ -430,6 +454,12 @@ if [ "$routing_priority_test_status" -ne 0 ]; then
   echo '--- routing-priority review test tail ---'
   tail -20 /tmp/agentim-routing-priority-test.err 2>/dev/null || true
   tail -20 /tmp/agentim-routing-priority-test.out 2>/dev/null || true
+fi
+
+if [ "$agent_bad_gateway_test_status" -ne 0 ]; then
+  echo '--- agent bad-gateway review test tail ---'
+  tail -20 /tmp/agentim-agent-bad-gateway-test.err 2>/dev/null || true
+  tail -20 /tmp/agentim-agent-bad-gateway-test.out 2>/dev/null || true
 fi
 
 if [ "$agent_timeout_test_status" -ne 0 ]; then

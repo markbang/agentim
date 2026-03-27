@@ -131,3 +131,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added executable reviewer coverage proving a webhook can route through the bridge into a mock OpenAI-compatible `/chat/completions` server and back to the channel, plus dry-run coverage for OpenAI agent startup wiring.
 - Added `agent_timeout_ms` / `--agent-timeout-ms` / `AGENTIM_AGENT_TIMEOUT_MS` so real agent backends cannot hang webhook handling indefinitely.
 - Exposed agent-timeout status through startup output and `/reviewz`, and added reviewer coverage proving slow agents now fail with `504 Gateway Timeout` without sending a channel reply.
+- Added OpenAI-compatible retry control (`--openai-max-retries` / `OPENAI_MAX_RETRIES`) so transient upstream 5xx/network failures can be retried without reworking the bridge.
+- Tightened upstream error classification so exhausted OpenAI/backend failures now surface as `502 Bad Gateway` instead of generic `400`, with reviewer coverage for retry success and upstream-failure reporting.

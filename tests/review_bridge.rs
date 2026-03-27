@@ -19,6 +19,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
@@ -191,6 +192,54 @@ async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
                 Json(serde_json::json!({
                     "choices": [{"message": {"content": format!("openai:{}", last_content)}}]
                 }))
+            }),
+        )
+        .route(
+            "/v1/models",
+            get(|| async { Json(serde_json::json!({"data": [{"id": "gpt-4o-mini"}]})) }),
+        );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (format!("http://{}/v1", addr), handle)
+}
+
+async fn spawn_flaky_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route(
+            "/v1/chat/completions",
+            post({
+                let attempts = attempts.clone();
+                move |Json(payload): Json<serde_json::Value>| {
+                    let attempts = attempts.clone();
+                    async move {
+                        let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                        if attempt == 0 {
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(serde_json::json!({"error": "transient"})),
+                            );
+                        }
+
+                        let last_content = payload["messages"]
+                            .as_array()
+                            .and_then(|messages| messages.last())
+                            .and_then(|message| message.get("content"))
+                            .and_then(|content| content.as_str())
+                            .unwrap_or_default();
+                        (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "choices": [{"message": {"content": format!("openai-retry:{}", last_content)}}]
+                            })),
+                        )
+                    }
+                }
             }),
         )
         .route(
@@ -433,6 +482,57 @@ async fn functionality_reviewer_bridges_webhooks_to_openai_compatible_agent() {
         TELEGRAM_CHANNEL_ID.to_string(),
         "4242".to_string(),
         "openai:hello openai".to_string(),
+    )));
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn functionality_reviewer_retries_transient_openai_backend_failures() {
+    let (base_url, server_handle) = spawn_flaky_openai_mock_server().await;
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+    agentim
+        .register_agent(
+            "default-agent".to_string(),
+            Arc::new(
+                OpenAiCompatibleAgent::new(
+                    "default-agent".to_string(),
+                    "test-key".to_string(),
+                    base_url,
+                    "gpt-4o-mini".to_string(),
+                )
+                .with_max_retries(1),
+            ),
+        )
+        .unwrap();
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+    let app = create_bot_router(agentim);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":102,"message":{"message_id":1002,"chat":{"id":4343},"text":"retry me"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "4343".to_string(),
+        "openai-retry:retry me".to_string(),
     )));
 
     server_handle.abort();
@@ -811,6 +911,51 @@ async fn routing_reviewer_matches_reply_target_prefix() {
         "general-room-2".to_string(),
         "discord:prefix default".to_string(),
     )));
+}
+
+#[tokio::test]
+async fn readiness_reviewer_surfaces_upstream_agent_failures_as_bad_gateway() {
+    let (base_url, server_handle) = spawn_flaky_openai_mock_server().await;
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+    agentim
+        .register_agent(
+            "default-agent".to_string(),
+            Arc::new(OpenAiCompatibleAgent::new(
+                "default-agent".to_string(),
+                "test-key".to_string(),
+                base_url,
+                "gpt-4o-mini".to_string(),
+            )),
+        )
+        .unwrap();
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let app = create_bot_router(agentim.clone());
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":3,"message":{"message_id":30,"chat":{"id":3030},"text":"upstream boom"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert!(sent_messages.lock().unwrap().is_empty());
+    let sessions = agentim.list_sessions();
+    assert_eq!(sessions.len(), 1);
+    assert!(sessions[0].messages.is_empty());
+
+    server_handle.abort();
 }
 
 #[tokio::test]
@@ -1751,6 +1896,8 @@ fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
             "http://127.0.0.1:18080/v1",
             "--openai-model",
             "gpt-4o-mini",
+            "--openai-max-retries",
+            "1",
         ])
         .output()
         .unwrap();
@@ -1758,6 +1905,7 @@ fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Default agent 'openai' registered"));
+    assert!(stdout.contains("OpenAI-compatible backend retries set to 1"));
     assert!(stdout.contains("Dry run complete"));
 }
 

@@ -5,6 +5,7 @@
   "openai_api_key": "YOUR_OPENAI_API_KEY",
   "openai_base_url": "https://api.openai.com/v1",
   "openai_model": "gpt-4o-mini",
+  "openai_max_retries": 1,
   "routing_rules": [
     {
       "channel": "telegram",

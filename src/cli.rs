@@ -81,6 +81,10 @@ pub struct Args {
     #[arg(long)]
     pub openai_model: Option<String>,
 
+    /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
+    #[arg(long)]
+    pub openai_max_retries: Option<usize>,
+
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]
     pub config_file: Option<String>,

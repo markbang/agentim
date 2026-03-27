@@ -19,6 +19,7 @@ args=()
 [[ -n "${OPENAI_API_KEY:-}" ]] && args+=(--openai-api-key "$OPENAI_API_KEY")
 [[ -n "${OPENAI_BASE_URL:-}" ]] && args+=(--openai-base-url "$OPENAI_BASE_URL")
 [[ -n "${OPENAI_MODEL:-}" ]] && args+=(--openai-model "$OPENAI_MODEL")
+[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && args+=(--openai-max-retries "$OPENAI_MAX_RETRIES")
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
@@ -68,6 +69,7 @@ echo "Agent:   ${AGENT:-from config or binary default (claude)}"
 echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${OPENAI_BASE_URL:-}" ]] && echo "OpenAI base URL: ${OPENAI_BASE_URL}"
 [[ -n "${OPENAI_MODEL:-}" ]] && echo "OpenAI model: ${OPENAI_MODEL}"
+[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && echo "OpenAI retries: ${OPENAI_MAX_RETRIES}"
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
