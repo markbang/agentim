@@ -81,6 +81,10 @@ pub struct Args {
     #[arg(long)]
     pub max_session_messages: Option<usize>,
 
+    /// Send at most this many messages from session history into the agent context window
+    #[arg(long)]
+    pub context_message_limit: Option<usize>,
+
     /// Require this shared secret in the x-agentim-secret header for all protected routes
     #[arg(long)]
     pub webhook_secret: Option<String>,

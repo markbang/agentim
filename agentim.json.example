@@ -26,6 +26,7 @@
   "state_file": ".agentim/sessions.json",
   "state_backup_count": 2,
   "max_session_messages": 50,
+  "context_message_limit": 12,
   "webhook_secret": "change-me",
   "webhook_signing_secret": "change-me-signing",
   "webhook_max_skew_seconds": 300,

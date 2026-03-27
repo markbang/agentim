@@ -19,6 +19,7 @@ args=()
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
+[[ -n "${AGENTIM_CONTEXT_MESSAGE_LIMIT:-}" ]] && args+=(--context-message-limit "$AGENTIM_CONTEXT_MESSAGE_LIMIT")
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && args+=(--webhook-secret "$AGENTIM_WEBHOOK_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && args+=(--webhook-signing-secret "$AGENTIM_WEBHOOK_SIGNING_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_MAX_SKEW_SECONDS:-}" ]] && args+=(--webhook-max-skew-seconds "$AGENTIM_WEBHOOK_MAX_SKEW_SECONDS")
@@ -65,6 +66,7 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
 [[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && echo "Telegram native secret: enabled"
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && echo "State backup rotation: ${AGENTIM_STATE_BACKUP_COUNT}"
+[[ -n "${AGENTIM_CONTEXT_MESSAGE_LIMIT:-}" ]] && echo "Agent context window: ${AGENTIM_CONTEXT_MESSAGE_LIMIT}"
 echo
 
 echo "Command:"

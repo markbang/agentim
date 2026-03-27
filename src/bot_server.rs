@@ -73,6 +73,7 @@ pub struct BotServerConfig {
     pub qq_agent_id: String,
     pub routing_rules: Vec<RoutingRule>,
     pub max_session_messages: Option<usize>,
+    pub context_message_limit: usize,
     pub state_file: Option<String>,
     pub state_backup_count: usize,
     pub webhook_secret: Option<String>,
@@ -107,6 +108,7 @@ impl Default for BotServerConfig {
             qq_agent_id: "default-agent".to_string(),
             routing_rules: Vec::new(),
             max_session_messages: None,
+            context_message_limit: 10,
             state_file: None,
             state_backup_count: 0,
             webhook_secret: None,
@@ -140,6 +142,7 @@ struct ReviewResponse {
     platform_agents: PlatformAgents,
     routing_rules: Vec<RoutingRule>,
     max_session_messages: Option<usize>,
+    context_message_limit: usize,
     state_backup_count: usize,
     persistence_enabled: bool,
     webhook_secret_enabled: bool,
@@ -318,6 +321,7 @@ async fn reviewz(
                 },
                 routing_rules: Vec::new(),
                 max_session_messages: None,
+                context_message_limit: 10,
                 state_backup_count: 0,
                 persistence_enabled: false,
                 webhook_secret_enabled: true,
@@ -342,6 +346,7 @@ async fn reviewz(
             },
             routing_rules: state.config.routing_rules.clone(),
             max_session_messages: state.config.max_session_messages,
+            context_message_limit: state.config.context_message_limit,
             state_backup_count: state.config.state_backup_count,
             persistence_enabled: state.config.state_file.is_some(),
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
@@ -396,6 +401,7 @@ async fn telegram_webhook(
         state.agentim.clone(),
         &agent_id,
         state.config.max_session_messages,
+        state.config.context_message_limit,
         update,
     )
     .await
@@ -442,6 +448,7 @@ async fn discord_webhook(
         state.agentim.clone(),
         &agent_id,
         state.config.max_session_messages,
+        state.config.context_message_limit,
         message,
     )
     .await
@@ -502,6 +509,7 @@ async fn feishu_webhook(
         state.agentim.clone(),
         &agent_id,
         state.config.max_session_messages,
+        state.config.context_message_limit,
         message,
     )
     .await
@@ -548,6 +556,7 @@ async fn qq_webhook(
         state.agentim.clone(),
         &agent_id,
         state.config.max_session_messages,
+        state.config.context_message_limit,
         message,
     )
     .await

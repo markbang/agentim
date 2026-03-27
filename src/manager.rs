@@ -197,6 +197,16 @@ impl AgentIM {
     }
 
     pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {
+        self.send_to_agent_with_context_limit(session_id, user_message, 10)
+            .await
+    }
+
+    pub async fn send_to_agent_with_context_limit(
+        &self,
+        session_id: &str,
+        user_message: String,
+        context_message_limit: usize,
+    ) -> Result<String> {
         let mut session = self.get_session(session_id)?;
         let agent = self.get_agent(&session.agent_id)?;
 
@@ -204,7 +214,7 @@ impl AgentIM {
         session.add_message(crate::session::MessageRole::User, user_message);
 
         // Get context for agent
-        let context = session.get_context(10);
+        let context = session.get_context(context_message_limit);
 
         // Send to agent
         let response = agent.send_message(context).await?;
@@ -265,6 +275,28 @@ impl AgentIM {
         user_message: String,
         max_messages: Option<usize>,
     ) -> Result<String> {
+        self.handle_incoming_message_with_limits(
+            agent_id,
+            channel_id,
+            user_id,
+            reply_target,
+            user_message,
+            max_messages,
+            10,
+        )
+        .await
+    }
+
+    pub async fn handle_incoming_message_with_limits(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+        max_messages: Option<usize>,
+        context_message_limit: usize,
+    ) -> Result<String> {
         let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
 
         if let Some(reply_target) = reply_target {
@@ -275,7 +307,9 @@ impl AgentIM {
             self.update_session(&session_id, session)?;
         }
 
-        let response = self.send_to_agent(&session_id, user_message).await?;
+        let response = self
+            .send_to_agent_with_context_limit(&session_id, user_message, context_message_limit)
+            .await?;
 
         if let Some(max_messages) = max_messages {
             self.trim_session_history(&session_id, max_messages)?;

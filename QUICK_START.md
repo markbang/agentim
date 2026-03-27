@@ -37,6 +37,7 @@ export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_STATE_FILE=.agentim/sessions.json
 export AGENTIM_STATE_BACKUP_COUNT=2
 export AGENTIM_MAX_SESSION_MESSAGES=50
+export AGENTIM_CONTEXT_MESSAGE_LIMIT=12
 export AGENTIM_WEBHOOK_SECRET=change-me
 export AGENTIM_WEBHOOK_SIGNING_SECRET=change-me-signing
 export AGENTIM_WEBHOOK_MAX_SKEW_SECONDS=300
@@ -64,6 +65,7 @@ cargo run -- --dry-run --agent claude --telegram-agent pi
 ```
 
 `--dry-run` / `AGENTIM_DRY_RUN=1` 会跳过真实 IM 健康检查，适合离线验证配置。
+需要控制 prompt 窗口时，可额外设置 `AGENTIM_CONTEXT_MESSAGE_LIMIT` 或 `--context-message-limit`。
 
 ## 常用凭证
 

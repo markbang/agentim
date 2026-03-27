@@ -119,6 +119,7 @@ pub async fn qq_webhook_handler(
     agentim: Arc<AgentIM>,
     agent_id: &str,
     max_session_messages: Option<usize>,
+    context_message_limit: usize,
     message: QQMessage,
 ) -> Result<()> {
     let user_id = message.author.id;
@@ -126,13 +127,14 @@ pub async fn qq_webhook_handler(
     let content = message.content;
 
     agentim
-        .handle_incoming_message_with_limit(
+        .handle_incoming_message_with_limits(
             agent_id,
             QQ_CHANNEL_ID,
             &user_id,
             Some(&reply_target),
             content,
             max_session_messages,
+            context_message_limit,
         )
         .await?;
 

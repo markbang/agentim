@@ -139,19 +139,21 @@ pub async fn telegram_webhook_handler(
     agentim: Arc<AgentIM>,
     agent_id: &str,
     max_session_messages: Option<usize>,
+    context_message_limit: usize,
     update: TelegramUpdate,
 ) -> Result<()> {
     if let Some(message) = update.message {
         if let Some(text) = message.text {
             let user_id = message.chat.id.to_string();
             agentim
-                .handle_incoming_message_with_limit(
+                .handle_incoming_message_with_limits(
                     agent_id,
                     TELEGRAM_CHANNEL_ID,
                     &user_id,
                     Some(&user_id),
                     text,
                     max_session_messages,
+                    context_message_limit,
                 )
                 .await?;
         }

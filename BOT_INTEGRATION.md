@@ -94,14 +94,16 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 # 请求需要带 x-telegram-bot-api-secret-token: tg-native-secret
 ```
 
-如果你希望 session 历史不会无限增长，并保留最近几个状态快照：
+如果你希望 session 历史不会无限增长，并把送给 agent 的上下文窗口与本地保留历史解耦：
 
 ```bash
 export AGENTIM_MAX_SESSION_MESSAGES=50
+export AGENTIM_CONTEXT_MESSAGE_LIMIT=12
 export AGENTIM_STATE_BACKUP_COUNT=2
 ```
 
 主快照损坏时，AgentIM 会在启动恢复阶段自动尝试最近的 `.bak.N` 备份。
+`AGENTIM_MAX_SESSION_MESSAGES` 控制最终保留多少会话历史，`AGENTIM_CONTEXT_MESSAGE_LIMIT` 控制每轮调用 agent 时最多带多少条上下文。
 
 如果需要把某个用户、某个回复目标，或者某类回复目标前缀路由到特殊 agent，可以在 `agentim.json` 中配置：
 

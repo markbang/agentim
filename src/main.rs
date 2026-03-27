@@ -55,6 +55,7 @@ struct RuntimeConfig {
     state_file: Option<String>,
     state_backup_count: Option<usize>,
     max_session_messages: Option<usize>,
+    context_message_limit: Option<usize>,
     webhook_secret: Option<String>,
     webhook_signing_secret: Option<String>,
     webhook_max_skew_seconds: Option<i64>,
@@ -150,6 +151,10 @@ async fn main() -> anyhow::Result<()> {
         .or(runtime_config.state_backup_count)
         .unwrap_or(0);
     let max_session_messages = args.max_session_messages.or(runtime_config.max_session_messages);
+    let context_message_limit = args
+        .context_message_limit
+        .or(runtime_config.context_message_limit)
+        .unwrap_or(10);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let webhook_signing_secret = merge_option(
         args.webhook_signing_secret,
@@ -330,6 +335,10 @@ async fn main() -> anyhow::Result<()> {
             max_session_messages
         ));
     }
+    cli::print_info(&format!(
+        "Agent context window limited to {} message(s)",
+        context_message_limit
+    ));
 
     if webhook_signing_secret.is_some() {
         cli::print_info(&format!(
@@ -357,6 +366,7 @@ async fn main() -> anyhow::Result<()> {
         qq_agent_id,
         routing_rules,
         max_session_messages,
+        context_message_limit,
         state_file,
         state_backup_count,
         webhook_secret,

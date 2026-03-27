@@ -156,6 +156,31 @@ fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> A
     agentim
 }
 
+struct ContextWindowAgent;
+
+#[async_trait]
+impl Agent for ContextWindowAgent {
+    fn agent_type(&self) -> AgentType {
+        AgentType::Claude
+    }
+
+    fn id(&self) -> &str {
+        "context-window-agent"
+    }
+
+    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+        let first = messages
+            .first()
+            .map(|message| message.content.clone())
+            .unwrap_or_default();
+        Ok(format!("ctx:{}|first:{}", messages.len(), first))
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn functionality_reviewer_routes_all_platform_webhooks() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
@@ -665,6 +690,69 @@ async fn routing_reviewer_matches_reply_target_prefix() {
         "general-room-2".to_string(),
         "discord:prefix default".to_string(),
     )));
+}
+
+#[tokio::test]
+async fn readiness_reviewer_limits_agent_context_window() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = Arc::new(AgentIM::new());
+    agentim
+        .register_agent("default-agent".to_string(), Arc::new(ContextWindowAgent))
+        .unwrap();
+    register_review_channel(
+        &agentim,
+        sent_messages.clone(),
+        TELEGRAM_CHANNEL_ID,
+        ChannelType::Telegram,
+    );
+
+    let session_id = agentim
+        .create_session(
+            "default-agent".to_string(),
+            TELEGRAM_CHANNEL_ID.to_string(),
+            "8080".to_string(),
+        )
+        .unwrap();
+    let mut session = agentim.get_session(&session_id).unwrap();
+    session.add_message(agentim::session::MessageRole::System, "system seed".to_string());
+    session.add_message(agentim::session::MessageRole::User, "u1".to_string());
+    session.add_message(agentim::session::MessageRole::Assistant, "a1".to_string());
+    session.add_message(agentim::session::MessageRole::User, "u2".to_string());
+    session.add_message(agentim::session::MessageRole::Assistant, "a2".to_string());
+    agentim.update_session(&session_id, session).unwrap();
+
+    let app = create_bot_router_with_config(
+        agentim.clone(),
+        BotServerConfig {
+            context_message_limit: 3,
+            ..BotServerConfig::default()
+        },
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":5,"message":{"message_id":50,"chat":{"id":8080},"text":"u3"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let sent = sent_messages.lock().unwrap().clone();
+    assert!(sent.contains(&(
+        TELEGRAM_CHANNEL_ID.to_string(),
+        "8080".to_string(),
+        "ctx:3|first:u2".to_string(),
+    )));
+
+    let session = agentim.get_session(&session_id).unwrap();
+    assert_eq!(session.messages.len(), 7);
+    assert_eq!(session.messages.back().unwrap().content, "ctx:3|first:u2");
 }
 
 #[tokio::test]
@@ -1275,6 +1363,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
         BotServerConfig {
             telegram_agent_id: "default-agent".to_string(),
             max_session_messages: Some(6),
+            context_message_limit: 4,
             state_file: Some("/tmp/agentim-status.json".to_string()),
             state_backup_count: 2,
             webhook_secret: Some("inspect".to_string()),
@@ -1317,6 +1406,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["sessions"], 1);
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
     assert_eq!(review_json["max_session_messages"], 6);
+    assert_eq!(review_json["context_message_limit"], 4);
     assert_eq!(review_json["state_backup_count"], 2);
     assert_eq!(review_json["persistence_enabled"], true);
     assert_eq!(review_json["webhook_secret_enabled"], true);
@@ -1361,6 +1451,7 @@ fn usability_reviewer_loads_runtime_config_file() {
   "state_file": ".agentim/test-sessions.json",
   "state_backup_count": 2,
   "max_session_messages": 4,
+  "context_message_limit": 7,
   "webhook_secret": "cfg-secret",
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
@@ -1381,6 +1472,7 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
+    assert!(stdout.contains("Agent context window limited to 7 message"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
     assert!(stdout.contains("Telegram native webhook secret token enabled"));
     assert!(stdout.contains("Dry run complete"));

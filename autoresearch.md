@@ -119,3 +119,5 @@ The project is only "done" when most of the score comes from executable checks, 
 - Added reviewer coverage proving `type=url_verification` requests return the expected challenge response payload directly.
 - Fixed dry-run semantics so channel health checks are skipped in `--dry-run`, making offline startup validation work even with dummy multi-platform credentials.
 - Hardened `start.sh` so `AGENTIM_DRY_RUN=1` actually runs the current binary's `--dry-run` path and rebuilds the release binary when it is stale, instead of only validating shell argument assembly.
+- Added a separate `context_message_limit` runtime control (`--context-message-limit`, config file, and `AGENTIM_CONTEXT_MESSAGE_LIMIT`) so operators can keep longer local session history while constraining how much context each agent call receives.
+- Extended reviewer coverage to prove the context window limit affects the agent prompt without forcing session persistence/history retention to shrink to the same size.
