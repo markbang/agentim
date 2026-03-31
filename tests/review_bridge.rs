@@ -6,7 +6,7 @@ use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGR
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
 use agentim::manager::AgentIM;
-use agentim::session::Message;
+use agentim::session::{Message, Session};
 use agentim::Result;
 use async_trait::async_trait;
 use axum::{
@@ -39,8 +39,11 @@ impl Agent for ReviewAgent {
         &self.id
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-        let last = messages.last().map(|msg| msg.content.clone()).unwrap_or_default();
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
+        let last = messages
+            .last()
+            .map(|msg| msg.content.clone())
+            .unwrap_or_default();
         Ok(format!("{}:{}", self.label, last))
     }
 
@@ -268,7 +271,7 @@ impl Agent for ContextWindowAgent {
         "context-window-agent"
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
         let first = messages
             .first()
             .map(|message| message.content.clone())
@@ -293,7 +296,11 @@ impl Agent for SlowAgent {
         "slow-agent"
     }
 
-    async fn send_message(&self, _messages: Vec<Message>) -> Result<String> {
+    async fn send_message(
+        &self,
+        _session: &mut Session,
+        _messages: Vec<Message>,
+    ) -> Result<String> {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         Ok("slow reply".to_string())
     }
@@ -1021,7 +1028,10 @@ async fn readiness_reviewer_limits_agent_context_window() {
         )
         .unwrap();
     let mut session = agentim.get_session(&session_id).unwrap();
-    session.add_message(agentim::session::MessageRole::System, "system seed".to_string());
+    session.add_message(
+        agentim::session::MessageRole::System,
+        "system seed".to_string(),
+    );
     session.add_message(agentim::session::MessageRole::User, "u1".to_string());
     session.add_message(agentim::session::MessageRole::Assistant, "a1".to_string());
     session.add_message(agentim::session::MessageRole::User, "u2".to_string());
@@ -1121,7 +1131,10 @@ async fn readiness_reviewer_preserves_system_messages_when_trimming_history() {
         )
         .unwrap();
     let mut session = agentim.get_session(&session_id).unwrap();
-    session.add_message(agentim::session::MessageRole::System, "system prompt".to_string());
+    session.add_message(
+        agentim::session::MessageRole::System,
+        "system prompt".to_string(),
+    );
     agentim.update_session(&session_id, session).unwrap();
 
     let app = create_bot_router_with_config(
@@ -1162,7 +1175,10 @@ async fn readiness_reviewer_preserves_system_messages_when_trimming_history() {
 
     let trimmed = agentim.get_session(&session_id).unwrap();
     assert_eq!(trimmed.messages.len(), 3);
-    assert_eq!(trimmed.messages[0].role, agentim::session::MessageRole::System);
+    assert_eq!(
+        trimmed.messages[0].role,
+        agentim::session::MessageRole::System
+    );
     assert_eq!(trimmed.messages[1].content, "second");
     assert_eq!(trimmed.messages[2].content, "default:second");
 }
@@ -1301,7 +1317,9 @@ async fn readiness_reviewer_truncates_long_history_summary_on_fragment_boundarie
     assert!(fragments[0].contains("older fragment(s) omitted"));
     assert!(fragments[1..]
         .iter()
-        .all(|fragment| fragment.starts_with("[turn] ") || fragment.starts_with("[user] ") || fragment.starts_with("[assistant] ")));
+        .all(|fragment| fragment.starts_with("[turn] ")
+            || fragment.starts_with("[user] ")
+            || fragment.starts_with("[assistant] ")));
     assert!(!summary.starts_with("..."));
 }
 
@@ -1341,7 +1359,9 @@ async fn readiness_reviewer_persists_sessions_between_restarts() {
         ChannelType::Telegram,
     );
 
-    let restored = restored_manager.load_sessions_from_path(&state_file).unwrap();
+    let restored = restored_manager
+        .load_sessions_from_path(&state_file)
+        .unwrap();
     assert_eq!(restored, 1);
     assert_eq!(restored_manager.list_sessions().len(), 1);
     assert_eq!(restored_manager.list_sessions()[0].messages.len(), 2);
@@ -1380,8 +1400,8 @@ async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
     let sessions: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
     assert!(sessions.is_array());
 
-    let temp_path = std::path::Path::new(&state_file)
-        .with_extension(format!("{}.tmp", std::process::id()));
+    let temp_path =
+        std::path::Path::new(&state_file).with_extension(format!("{}.tmp", std::process::id()));
     assert!(!temp_path.exists());
 
     let _ = std::fs::remove_file(state_file);
@@ -1481,8 +1501,14 @@ async fn persistence_reviewer_rotates_snapshot_backups() {
     assert!(std::path::Path::new(&state_file).exists());
     assert!(std::path::Path::new(&backup_1).exists());
     assert!(std::path::Path::new(&backup_2).exists());
-    assert!(serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&backup_1).unwrap()).is_ok());
-    assert!(serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&backup_2).unwrap()).is_ok());
+    assert!(serde_json::from_str::<serde_json::Value>(
+        &std::fs::read_to_string(&backup_1).unwrap()
+    )
+    .is_ok());
+    assert!(serde_json::from_str::<serde_json::Value>(
+        &std::fs::read_to_string(&backup_2).unwrap()
+    )
+    .is_ok());
 
     let _ = std::fs::remove_file(state_file);
     let _ = std::fs::remove_file(backup_1);
@@ -1559,7 +1585,8 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
         },
     );
 
-    let body = r#"{"update_id":14,"message":{"message_id":140,"chat":{"id":14},"text":"signed hello"}}"#;
+    let body =
+        r#"{"update_id":14,"message":{"message_id":140,"chat":{"id":14},"text":"signed hello"}}"#;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1594,8 +1621,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 
     let headers = signed_headers("signed-secret", body, now, "nonce-good");
     let valid_request = headers.iter().fold(
-        Request::post("/telegram")
-            .header("content-type", "application/json"),
+        Request::post("/telegram").header("content-type", "application/json"),
         |req, (name, value)| req.header(name, value),
     );
     let signed_ok = app
@@ -1606,8 +1632,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
     assert_eq!(signed_ok.status(), StatusCode::OK);
 
     let replay_request = headers.iter().fold(
-        Request::post("/telegram")
-            .header("content-type", "application/json"),
+        Request::post("/telegram").header("content-type", "application/json"),
         |req, (name, value)| req.header(name, value),
     );
     let replay = app
@@ -1626,7 +1651,9 @@ async fn security_reviewer_accepts_discord_interaction_signature_only_when_heade
     let app = create_bot_router_with_config(
         agentim,
         BotServerConfig {
-            discord_interaction_public_key: Some(hex::encode(signing_key.verifying_key().to_bytes())),
+            discord_interaction_public_key: Some(hex::encode(
+                signing_key.verifying_key().to_bytes(),
+            )),
             ..BotServerConfig::default()
         },
     );
@@ -1661,8 +1688,7 @@ async fn security_reviewer_accepts_discord_interaction_signature_only_when_heade
 
     let headers = discord_signed_headers(&signing_key, body, "1700000000");
     let valid_request = headers.iter().fold(
-        Request::post("/discord")
-            .header("content-type", "application/json"),
+        Request::post("/discord").header("content-type", "application/json"),
         |req, (name, value)| req.header(name, value),
     );
     let ok = app
@@ -1806,6 +1832,65 @@ async fn functionality_reviewer_handles_feishu_url_verification_challenge() {
 }
 
 #[tokio::test]
+async fn ops_reviewer_surfaces_acp_session_observability_in_reviewz() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages.clone());
+    let session_id = agentim
+        .create_session(
+            "default-agent".to_string(),
+            TELEGRAM_CHANNEL_ID.to_string(),
+            "acp-user".to_string(),
+        )
+        .unwrap();
+    let mut session = agentim.get_session(&session_id).unwrap();
+    session
+        .metadata
+        .insert("acp_session_id".to_string(), "remote-acp-1".to_string());
+    session.metadata.insert(
+        "acp_backend".to_string(),
+        "codex exec --json".to_string(),
+    );
+    session
+        .metadata
+        .insert("acp_agent".to_string(), "Codex@1.2.3".to_string());
+    session.metadata.insert(
+        "acp_stop_reason".to_string(),
+        "EndTurn".to_string(),
+    );
+    agentim.update_session(&session_id, session).unwrap();
+
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            webhook_secret: Some("inspect".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let review = app
+        .clone()
+        .oneshot(
+            Request::get("/reviewz")
+                .header("x-agentim-secret", "inspect")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(review.status(), StatusCode::OK);
+    let review_bytes = to_bytes(review.into_body(), usize::MAX).await.unwrap();
+    let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
+    let acp_sessions = review_json["acp_sessions"].as_array().unwrap();
+    assert_eq!(acp_sessions.len(), 1);
+    assert_eq!(acp_sessions[0]["session_id"], session_id);
+    assert_eq!(acp_sessions[0]["user_id"], "acp-user");
+    assert_eq!(acp_sessions[0]["remote_session_id"], "remote-acp-1");
+    assert_eq!(acp_sessions[0]["backend"], "codex exec --json");
+    assert_eq!(acp_sessions[0]["agent"], "Codex@1.2.3");
+    assert_eq!(acp_sessions[0]["stop_reason"], "EndTurn");
+}
+
+#[tokio::test]
 async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1833,7 +1918,9 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
             telegram_webhook_secret_token: Some("tg-inspect".to_string()),
-            discord_interaction_public_key: Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()),
+            discord_interaction_public_key: Some(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            ),
             feishu_verification_token: Some("fei-inspect".to_string()),
             ..BotServerConfig::default()
         },
@@ -1881,6 +1968,7 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
     assert_eq!(review_json["discord_interaction_public_key_enabled"], true);
     assert_eq!(review_json["feishu_verification_token_enabled"], true);
+    assert!(review_json["acp_sessions"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -1906,6 +1994,27 @@ fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Default agent 'openai' registered"));
     assert!(stdout.contains("OpenAI-compatible backend retries set to 1"));
+    assert!(stdout.contains("Dry run complete"));
+}
+
+#[test]
+fn usability_reviewer_dry_run_accepts_acp_agent_config() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args([
+            "--dry-run",
+            "--agent",
+            "acp",
+            "--acp-command",
+            "/bin/echo",
+            "--acp-arg",
+            "agent-ready",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'acp' registered"));
     assert!(stdout.contains("Dry run complete"));
 }
 

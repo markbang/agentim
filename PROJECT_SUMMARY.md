@@ -2,284 +2,138 @@
 
 ## 项目概述
 
-AgentIM 是一个用 Rust 编写的优雅的多 channel AI agent 管理系统。它提供了一个统一的接口来管理多个 AI 代理（Claude、Codex、Pi）和多个通讯渠道（Telegram、Discord、Feishu、QQ），同时优雅地管理用户会话和上下文。
+AgentIM 是一个用 Rust 编写的多平台 AI bridge。它把来自 Telegram、Discord、Feishu/Lark、QQ 的 webhook 消息统一送入 agent 层，并在服务端管理：
 
-## 核心特性
+- 默认 agent 与平台级 agent 覆盖
+- 基于 `routing_rules` 的用户级 / reply-target 级路由
+- session 自动创建与复用
+- 历史裁剪与上下文窗口控制
+- agent 超时
+- 可选 JSON 持久化与备份恢复
+- webhook 共享密钥、HMAC 签名与平台原生验签
 
-### ✨ 多 Agent 支持
-- **Claude** (Anthropic): 通过官方 API 集成
-- **Codex** (OpenAI): 通过 OpenAI API 集成
-- **Pi**: 通过 Pi API 集成
-- 易于扩展新的 Agent 类型
+## 当前运行模型
 
-### 📱 多 Channel 支持
-- **Telegram**: 通过 Bot API
-- **Discord**: 通过 Discord API
-- **Feishu/Lark**: 通过 Feishu Open API
-- **QQ**: 通过 QQ Bot API
-- 易于扩展新的 Channel 类型
+当前二进制 `agentim` 是一个**启动型 bridge 进程**，而不是带大量资源管理子命令的 CLI。典型启动流程是：
 
-### 🎯 优雅的 Session 管理
-- 每个用户-agent-channel 组合维护独立 session
-- 自动上下文管理（可配置历史消息数量）
-- 消息持久化和恢复
-- 元数据支持
-
-### ⚡ 高性能并发
-- 使用 DashMap 实现无锁并发
-- 支持高并发场景（数千个并发 session）
-- 异步优先设计，基于 Tokio
-
-### 🛡️ 完善的错误处理
-- 统一的错误类型系统
-- 详细的错误信息
-- 优雅的错误传播
-
-## 项目结构
-
-```
-agentim/
-├── src/
-│   ├── main.rs              # CLI 主程序
-│   ├── lib.rs               # 库导出
-│   ├── agent.rs             # Agent trait 和实现
-│   ├── channel.rs           # Channel trait 和实现
-│   ├── session.rs           # Session 和 Message 定义
-│   ├── manager.rs           # AgentIM 核心管理器
-│   ├── config.rs            # 配置类型定义
-│   ├── error.rs             # 错误类型定义
-│   └── cli.rs               # CLI 命令处理
-├── examples/
-│   ├── basic.rs             # 基础使用示例
-│   └── session_management.rs # Session 管理示例
-├── Cargo.toml               # 项目配置
-├── README.md                # 项目文档
-├── ARCHITECTURE.md          # 架构设计文档
-├── CLI_GUIDE.md             # CLI 使用指南
-├── .env.example             # 环境变量示例
-└── setup.sh                 # 自动化设置脚本
-```
+1. 读取命令行与 JSON 配置
+2. 注册默认 agent 与平台级 agent
+3. 注册已配置凭证的平台 channel
+4. 创建 Axum router
+5. 暴露 `/telegram`、`/discord`、`/feishu`、`/qq`、`/healthz`、`/reviewz`
+6. 处理 webhook → session → agent → channel 回发
+7. 通过 `/reviewz` 暴露运行态摘要；ACP backend 启用时额外展示 ACP session 映射与 stop reason
 
 ## 技术栈
 
-### 核心依赖
-- **tokio**: 异步运行时
-- **async-trait**: 异步 trait 支持
-- **dashmap**: 无锁并发哈希表
-- **serde/serde_json**: 序列化/反序列化
-- **reqwest**: 异步 HTTP 客户端
-- **uuid**: UUID 生成
-- **chrono**: 时间处理
-- **thiserror**: 错误处理
-- **clap**: CLI 命令解析
-- **colored**: 彩色输出
-- **prettytable-rs**: 表格输出
+- **Rust 2021**
+- **Tokio**：异步运行时
+- **Axum**：HTTP / webhook server
+- **Reqwest**：调用 OpenAI-compatible backend 与平台 API
+- **Serde / serde_json**：配置与状态序列化
+- **DashMap**：并发 session / registry 管理
+- **Clap**：参数解析
+- **HMAC-SHA256 / Ed25519**：webhook 验签
 
-### 开发工具
-- **Rust 1.70+**: 编程语言
-- **Cargo**: 包管理器
-- **Tokio**: 异步运行时
+## 核心模块
 
-## 快速开始
-
-### 1. 克隆项目
-```bash
-git clone <repo-url>
-cd agentim
+```text
+src/
+├── main.rs           # 启动入口，负责合并配置与注册组件
+├── bot_server.rs     # webhook 路由、鉴权、review/health 端点
+├── manager.rs        # AgentIM 管理器：agent/channel/session 编排
+├── session.rs        # session、上下文窗口、trim/history summary
+├── agent.rs          # Agent trait 与内置 agent 实现
+├── channel.rs        # Channel trait 与通用 channel 实现
+├── bots/             # Telegram/Discord/Feishu/QQ 平台适配
+├── cli.rs            # 当前 flag CLI 定义
+├── error.rs          # 统一错误类型
+└── config.rs         # 公共配置结构
 ```
 
-### 2. 配置环境
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的 API keys
-```
+## 本地开发与验证
 
-### 3. 构建项目
+### 构建
+
 ```bash
 cargo build --release
 ```
 
-### 4. 运行设置脚本
+### 查看可用参数
+
 ```bash
-chmod +x setup.sh
+cargo run -- --help
+```
+
+### Dry-run
+
+```bash
+cargo run -- --dry-run --agent claude --telegram-token "$TELEGRAM_TOKEN"
+AGENTIM_DRY_RUN=1 ./start.sh
+```
+
+### 运行核心回归测试
+
+```bash
+cargo test --test review_bridge
+```
+
+### 运行 acceptance 检查
+
+```bash
+./autoresearch.sh
+```
+
+## 推荐启动方式
+
+### 方式 1：直接启动
+
+```bash
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
+```
+
+### 方式 2：环境变量 + `start.sh`
+
+```bash
+export AGENTIM_CONFIG_FILE=agentim.json
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export TELEGRAM_TOKEN=your-token
+./start.sh
+```
+
+### 方式 3：兼容包装器 `setup.sh`
+
+```bash
+AGENTIM_DRY_RUN=1 ./setup.sh
 ./setup.sh
 ```
 
-### 5. 查看系统状态
-```bash
-./target/release/agentim status
-```
+`setup.sh` 会加载 `.env`、兼容旧变量名，并转调 `start.sh`。
 
-## 使用示例
+## 项目现状
 
-### 基础使用
+### 已具备能力
 
-```rust
-use agentim::{AgentIM, agent::ClaudeAgent, channel::TelegramChannel};
-use std::sync::Arc;
+- 多平台 webhook 接入
+- 默认 agent + 平台覆盖 + `routing_rules`
+- `reply_target` 正确回发 Discord / QQ 等频道型平台
+- session 持久化、备份轮转与损坏恢复
+- 上下文窗口限制、历史裁剪、超时控制
+- webhook 共享密钥、HMAC 签名、Telegram/Discord/Feishu 原生校验
+- `review_bridge` 回归测试与 `autoresearch.sh` 验收脚本
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let agentim = AgentIM::new();
+### 当前维护风险
 
-    // 注册 Agent
-    let claude = Arc::new(ClaudeAgent::new(
-        "claude-1".to_string(),
-        "your-api-key".to_string(),
-        None,
-        None,
-    ));
-    agentim.register_agent("claude-1".to_string(), claude)?;
+- 仓库内仍有部分历史文档描述旧版“子命令式 CLI”模型
+- 依赖版本若继续漂移，可能再次踩到本地工具链兼容性问题
+- session 与路由行为已较丰富，后续改动应优先依赖回归测试而非人工验证
 
-    // 注册 Channel
-    let telegram = Arc::new(TelegramChannel::new(
-        "tg-1".to_string(),
-        "your-bot-token".to_string(),
-    ));
-    agentim.register_channel("tg-1".to_string(), telegram)?;
+## 维护建议
 
-    // 创建 Session
-    let session_id = agentim.create_session(
-        "claude-1".to_string(),
-        "tg-1".to_string(),
-        "user123".to_string(),
-    )?;
-
-    // 发送消息
-    let response = agentim.send_to_agent(&session_id, "Hello!".to_string()).await?;
-    agentim.send_to_channel(&session_id, response).await?;
-
-    Ok(())
-}
-```
-
-### CLI 使用
-
-```bash
-# 列出所有 Agent
-agentim agent list
-
-# 注册 Claude Agent
-agentim agent register \
-  --id claude-main \
-  --agent-type claude \
-  --api-key $ANTHROPIC_API_KEY
-
-# 创建 Session
-agentim session create \
-  --agent-id claude-main \
-  --channel-id tg-main \
-  --user-id user123
-
-# 查看系统状态
-agentim status
-```
-
-## 架构亮点
-
-### 1. 无锁并发设计
-使用 DashMap 实现分片哈希表，避免全局锁，支持高并发访问。
-
-### 2. Trait-based 扩展
-通过 trait 定义 Agent 和 Channel 接口，易于添加新的实现。
-
-### 3. 异步优先
-所有 I/O 操作都是异步的，基于 Tokio 运行时，支持高并发。
-
-### 4. 上下文管理
-自动管理消息历史，支持可配置的上下文窗口大小。
-
-### 5. 错误处理
-统一的错误类型系统，使用 thiserror 宏自动生成错误实现。
-
-## 性能指标
-
-- **并发 Session**: 支持数千个并发 session
-- **消息延迟**: <100ms（不含网络延迟）
-- **内存占用**: 每个 session ~1KB（不含消息历史）
-- **吞吐量**: 支持每秒数千条消息
-
-## 扩展指南
-
-### 添加新的 Agent
-
-1. 在 `config.rs` 中添加新的 `AgentType`
-2. 在 `agent.rs` 中实现新的 struct
-3. 实现 `Agent` trait
-4. 在 CLI 中添加支持
-
-### 添加新的 Channel
-
-1. 在 `config.rs` 中添加新的 `ChannelType`
-2. 在 `channel.rs` 中实现新的 struct
-3. 实现 `Channel` trait
-4. 在 CLI 中添加支持
-
-## 测试
-
-```bash
-# 运行所有测试
-cargo test
-
-# 运行特定模块测试
-cargo test session::tests
-
-# 运行示例
-cargo run --example basic
-cargo run --example session_management
-```
-
-## 文档
-
-- **README.md**: 项目概述和快速开始
-- **ARCHITECTURE.md**: 详细的架构设计文档
-- **CLI_GUIDE.md**: CLI 使用指南和示例
-- **代码注释**: 详细的代码注释和文档
-
-## 安全考虑
-
-- ✅ API Key 通过环境变量管理
-- ✅ Session 隔离
-- ✅ 错误信息中自动脱敏
-- ✅ 支持权限控制（可扩展）
-- ✅ 审计日志支持（可扩展）
-
-## 未来规划
-
-### 短期
-- [ ] 完整的 receive_message 实现
-- [ ] 数据库持久化
-- [ ] 配置文件支持
-- [ ] 更多的 Agent 类型
-
-### 中期
-- [ ] Web API 接口
-- [ ] 实时消息推送
-- [ ] 消息队列集成
-- [ ] 分布式部署
-
-### 长期
-- [ ] 机器学习集成
-- [ ] 高级上下文管理
-- [ ] 多语言支持
-- [ ] 企业级功能
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-## 许可证
-
-MIT
-
-## 联系方式
-
-如有问题或建议，欢迎提交 Issue。
-
----
-
-**项目状态**: 🚀 Active Development
-
-**最后更新**: 2026-03-13
-
-**版本**: 0.1.0
+1. **优先维护 `README.md`、`SETUP.md`、`CLI_GUIDE.md` 的一致性**
+2. **每次改路由/会话逻辑先跑 `cargo test --test review_bridge`**
+3. **新增平台或 agent 时同步补充 `reviewz` 可观测信息与测试覆盖**

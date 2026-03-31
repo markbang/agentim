@@ -160,6 +160,19 @@ struct ReviewResponse {
     telegram_webhook_secret_token_enabled: bool,
     discord_interaction_public_key_enabled: bool,
     feishu_verification_token_enabled: bool,
+    acp_sessions: Vec<AcpSessionReview>,
+}
+
+#[derive(Serialize)]
+struct AcpSessionReview {
+    session_id: String,
+    agent_id: String,
+    channel_id: String,
+    user_id: String,
+    remote_session_id: String,
+    backend: String,
+    agent: Option<String>,
+    stop_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -173,6 +186,33 @@ struct PlatformAgents {
 #[derive(Serialize)]
 struct FeishuChallengeResponse {
     challenge: String,
+}
+
+fn collect_acp_sessions(agentim: &AgentIM) -> Vec<AcpSessionReview> {
+    let mut sessions = agentim
+        .list_sessions()
+        .into_iter()
+        .filter_map(|session| {
+            let remote_session_id = session.metadata.get("acp_session_id")?.clone();
+            Some(AcpSessionReview {
+                session_id: session.id,
+                agent_id: session.agent_id,
+                channel_id: session.channel_id,
+                user_id: session.user_id,
+                remote_session_id,
+                backend: session
+                    .metadata
+                    .get("acp_backend")
+                    .cloned()
+                    .unwrap_or_default(),
+                agent: session.metadata.get("acp_agent").cloned(),
+                stop_reason: session.metadata.get("acp_stop_reason").cloned(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+    sessions
 }
 
 fn persist_if_configured(state: &AppState) -> Result<(), String> {
@@ -408,6 +448,7 @@ async fn reviewz(
                 telegram_webhook_secret_token_enabled: false,
                 discord_interaction_public_key_enabled: false,
                 feishu_verification_token_enabled: false,
+                acp_sessions: Vec::new(),
             }),
         );
     }
@@ -442,6 +483,7 @@ async fn reviewz(
                 .discord_interaction_public_key
                 .is_some(),
             feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
+            acp_sessions: collect_acp_sessions(&state.agentim),
         }),
     )
 }

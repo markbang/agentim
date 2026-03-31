@@ -1,213 +1,95 @@
 # AgentIM Quick Reference
 
-## 项目完成情况
+## 当前定位
 
-✅ **核心架构**
-- Agent trait + 3个实现 (Claude, Codex, Pi)
-- Channel trait + 4个实现 (Telegram, Discord, Feishu, QQ)
-- Session管理系统
-- AgentIM核心管理器
+AgentIM 是一个用 Rust 编写的多平台 AI bridge：把 Telegram、Discord、Feishu、QQ 的 webhook 消息统一接入到 agent 层，并负责 session、路由、上下文裁剪、回发目标与可选持久化。
 
-✅ **并发设计**
-- DashMap无锁并发
-- Arc<dyn Trait>多态
-- Tokio异步运行时
-- 支持数千并发session
+当前仓库提供两层能力：
 
-✅ **CLI工具**
-- Agent管理命令
-- Channel管理命令
-- Session管理命令
-- 系统状态查询
+- **库能力**：`AgentIM`、`Agent`、`Channel`、`Session` 抽象，可用于二次开发
+- **二进制能力**：`agentim` 启动 webhook server，自动处理桥接流程
 
-✅ **文档**
-- README.md (项目概述)
-- ARCHITECTURE.md (架构设计)
-- CLI_GUIDE.md (使用指南)
-- PROJECT_SUMMARY.md (项目总结)
-
-✅ **示例**
-- basic.rs (基础使用)
-- session_management.rs (会话管理)
-
-✅ **配置**
-- .env.example (环境变量示例)
-- setup.sh (自动化设置脚本)
-
-## 快速命令
+## 最常用命令
 
 ```bash
-# 构建
+# 查看参数
+cargo run -- --help
+
+# 本地构建
 cargo build --release
 
-# 测试
-cargo test
+# Dry-run 校验启动参数
+cargo run -- --dry-run --agent claude --telegram-token "$TELEGRAM_TOKEN"
+AGENTIM_DRY_RUN=1 ./start.sh
+AGENTIM_DRY_RUN=1 ./setup.sh
 
-# 运行示例
-cargo run --example basic
-cargo run --example session_management
+# 运行主服务
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
 
-# CLI使用
-./target/release/agentim agent list
-./target/release/agentim channel list
-./target/release/agentim session list
-./target/release/agentim status
+# 回归测试
+cargo test --test review_bridge
 
-# 自动化设置
-chmod +x setup.sh
-./setup.sh
+# 结构化验收
+./autoresearch.sh
 ```
+
+## 启动脚本
+
+- `start.sh`：推荐入口，读取环境变量并自动构建过期的 release 二进制
+- `setup.sh`：兼容包装器，会加载 `.env`、兼容旧环境变量名，并委托到 `start.sh`
+
+## 关键路由
+
+- `POST /telegram`
+- `POST /discord`
+- `POST /feishu`
+- `POST /qq`
+- `GET /healthz`
+- `GET /reviewz`
+
+## 关键参数
+
+- Agent 选择：`--agent`、`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`
+- OpenAI backend：`--openai-api-key`、`--openai-base-url`、`--openai-model`、`--openai-max-retries`
+- Session 控制：`--state-file`、`--state-backup-count`、`--max-session-messages`、`--context-message-limit`、`--agent-timeout-ms`
+- 安全控制：`--webhook-secret`、`--webhook-signing-secret`、`--webhook-max-skew-seconds`
+- 平台校验：`--telegram-webhook-secret-token`、`--discord-interaction-public-key`、`--feishu-verification-token`
 
 ## 项目结构
 
-```
+```text
 src/
-├── main.rs       # CLI主程序
-├── lib.rs        # 库导出
-├── agent.rs      # Agent实现
-├── channel.rs    # Channel实现
-├── session.rs    # Session管理
-├── manager.rs    # 核心管理器
-├── config.rs     # 配置类型
-├── error.rs      # 错误处理
-└── cli.rs        # CLI命令
+├── main.rs           # 启动入口，合并 CLI + JSON 配置并注册 agent/channel
+├── bot_server.rs     # Axum 路由、鉴权、路由决策、health/review 端点
+├── manager.rs        # AgentIM 核心管理器
+├── session.rs        # 会话、历史裁剪、history summary
+├── agent.rs          # Agent trait 与内置 agent 实现
+├── channel.rs        # Channel trait 与通用 channel 抽象
+├── bots/             # 各平台 webhook 解析与回发实现
+├── cli.rs            # 当前扁平 flag CLI 定义
+├── error.rs          # 统一错误类型
+└── config.rs         # 公共配置类型
 
-examples/
-├── basic.rs
-└── session_management.rs
-
-docs/
-├── README.md
-├── ARCHITECTURE.md
-├── CLI_GUIDE.md
-└── PROJECT_SUMMARY.md
+tests/
+└── review_bridge.rs  # 关键桥接回归测试
 ```
 
-## 核心API
+## 技术栈
 
-```rust
-// 创建管理器
-let agentim = AgentIM::new();
+- Rust 2021
+- Tokio
+- Axum
+- Reqwest
+- Serde / Serde JSON
+- DashMap
+- Clap
+- HMAC-SHA256 / Ed25519
 
-// 注册Agent
-agentim.register_agent(id, agent)?;
+## 当前维护重点
 
-// 注册Channel
-agentim.register_channel(id, channel)?;
-
-// 创建Session
-let session_id = agentim.create_session(agent_id, channel_id, user_id)?;
-
-// 发送消息
-let response = agentim.send_to_agent(&session_id, message).await?;
-agentim.send_to_channel(&session_id, response).await?;
-
-// 查询
-agentim.list_agents()
-agentim.list_channels()
-agentim.list_sessions()
-agentim.get_session(id)?
-
-// 健康检查
-agentim.health_check().await?
-```
-
-## 扩展点
-
-### 添加新Agent
-1. config.rs: 添加AgentType
-2. agent.rs: 实现Agent trait
-3. cli.rs: 添加CLI支持
-
-### 添加新Channel
-1. config.rs: 添加ChannelType
-2. channel.rs: 实现Channel trait
-3. cli.rs: 添加CLI支持
-
-## 性能指标
-
-| 指标 | 值 |
-|------|-----|
-| 并发Session | 数千 |
-| 消息延迟 | <100ms |
-| 内存/Session | ~1KB |
-| 吞吐量 | 数千msg/sec |
-
-## 关键特性
-
-🎯 **多Agent支持**: Claude, Codex, Pi
-📱 **多Channel支持**: Telegram, Discord, Feishu, QQ
-⚡ **高性能并发**: DashMap + Tokio
-🛡️ **完善错误处理**: 统一错误类型
-📊 **优雅Session管理**: 自动上下文管理
-🔧 **易于��展**: Trait-based设计
-
-## 依赖关键库
-
-- tokio: 异步运行时
-- dashmap: 无锁并发
-- serde: 序列化
-- reqwest: HTTP客户端
-- clap: CLI解析
-- async-trait: 异步trait
-
-## 下一步建议
-
-1. **数据库持久化**: 添加SQLite/PostgreSQL支持
-2. **Web API**: 添加REST API接口
-3. **消息队列**: 集成Redis/RabbitMQ
-4. **实时推送**: WebSocket支持
-5. **分布式**: 支持多节点部署
-6. **监控**: Prometheus指标导出
-7. **日志**: 结构化日志系统
-
-## 文件清单
-
-```
-agentim/
-├── src/
-│   ├── main.rs (180行)
-│   ├── lib.rs (10行)
-│   ├── agent.rs (250行)
-│   ├── channel.rs (280行)
-│   ├── session.rs (120行)
-│   ├── manager.rs (200行)
-│   ├── config.rs (80行)
-│   ├── error.rs (40行)
-│   └── cli.rs (150行)
-├── examples/
-│   ├── basic.rs (80行)
-│   └── session_management.rs (100行)
-├── Cargo.toml
-├── README.md (200行)
-├── ARCHITECTURE.md (400行)
-├── CLI_GUIDE.md (300行)
-├── PROJECT_SUMMARY.md (250行)
-├── .env.example
-└── setup.sh
-
-总计: ~2500行代码 + 1200行文档
-```
-
-## 提交信息
-
-```
-feat: Initial AgentIM implementation
-
-- Multi-channel AI agent manager in Rust
-- Support for Claude, Codex, Pi agents
-- Support for Telegram, Discord, Feishu, QQ channels
-- Elegant session management with context tracking
-- Lock-free concurrent design using DashMap
-- Async-first architecture with Tokio
-- Comprehensive CLI interface
-- Full documentation and examples
-```
-
----
-
-**项目状态**: ✅ 完成初版实现
-**代码质量**: 生产级别
-**文档完整度**: 100%
-**可扩展性**: 高
-**性能**: 优秀
+1. **保持文档与运行模型一致**：避免旧版子命令文档继续误导使用者
+2. **守住桥接回归测试**：优先维护 `tests/review_bridge.rs` 覆盖的关键路径
+3. **持续收敛会话/路由可观测性**：围绕 `reviewz`、持久化、签名校验，以及 ACP session 映射增加可见性
