@@ -1846,17 +1846,15 @@ async fn ops_reviewer_surfaces_acp_session_observability_in_reviewz() {
     session
         .metadata
         .insert("acp_session_id".to_string(), "remote-acp-1".to_string());
-    session.metadata.insert(
-        "acp_backend".to_string(),
-        "codex exec --json".to_string(),
-    );
+    session
+        .metadata
+        .insert("acp_backend".to_string(), "codex exec --json".to_string());
     session
         .metadata
         .insert("acp_agent".to_string(), "Codex@1.2.3".to_string());
-    session.metadata.insert(
-        "acp_stop_reason".to_string(),
-        "EndTurn".to_string(),
-    );
+    session
+        .metadata
+        .insert("acp_stop_reason".to_string(), "EndTurn".to_string());
     agentim.update_session(&session_id, session).unwrap();
 
     let app = create_bot_router_with_config(
@@ -1888,6 +1886,45 @@ async fn ops_reviewer_surfaces_acp_session_observability_in_reviewz() {
     assert_eq!(acp_sessions[0]["backend"], "codex exec --json");
     assert_eq!(acp_sessions[0]["agent"], "Codex@1.2.3");
     assert_eq!(acp_sessions[0]["stop_reason"], "EndTurn");
+}
+
+#[tokio::test]
+async fn ops_reviewer_redacts_acp_sensitive_identifiers_without_shared_secret() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let session_id = agentim
+        .create_session(
+            "default-agent".to_string(),
+            TELEGRAM_CHANNEL_ID.to_string(),
+            "acp-user".to_string(),
+        )
+        .unwrap();
+    let mut session = agentim.get_session(&session_id).unwrap();
+    session
+        .metadata
+        .insert("acp_session_id".to_string(), "remote-acp-1".to_string());
+    session
+        .metadata
+        .insert("acp_backend".to_string(), "codex exec --json".to_string());
+    agentim.update_session(&session_id, session).unwrap();
+
+    let app = create_bot_router(agentim);
+    let review = app
+        .oneshot(Request::get("/reviewz").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(review.status(), StatusCode::OK);
+    let review_bytes = to_bytes(review.into_body(), usize::MAX).await.unwrap();
+    let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
+    let acp_sessions = review_json["acp_sessions"].as_array().unwrap();
+    assert_eq!(acp_sessions.len(), 1);
+    assert_eq!(acp_sessions[0]["session_id"], session_id);
+    assert_eq!(acp_sessions[0]["user_id"], serde_json::Value::Null);
+    assert_eq!(
+        acp_sessions[0]["remote_session_id"],
+        serde_json::Value::Null
+    );
+    assert_eq!(acp_sessions[0]["backend"], "codex exec --json");
 }
 
 #[tokio::test]

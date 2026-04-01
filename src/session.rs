@@ -111,9 +111,7 @@ impl Session {
     pub fn trim_history(&mut self, max_messages: usize) {
         if max_messages == 0 {
             if !self.messages.is_empty() {
-                self.update_history_summary(
-                    &self.messages.iter().cloned().collect::<Vec<_>>(),
-                );
+                self.update_history_summary(&self.messages.iter().cloned().collect::<Vec<_>>());
             }
             self.messages.clear();
             self.updated_at = Utc::now();
@@ -352,7 +350,9 @@ mod tests {
         assert!(fragments[0].contains("older fragment(s) omitted"));
         assert!(fragments[1..]
             .iter()
-            .all(|fragment| fragment.starts_with("[turn] ") || fragment.starts_with("[user] ") || fragment.starts_with("[assistant] ")));
+            .all(|fragment| fragment.starts_with("[turn] ")
+                || fragment.starts_with("[user] ")
+                || fragment.starts_with("[assistant] ")));
         assert!(!summary.starts_with("..."));
     }
 }

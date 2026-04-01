@@ -11,6 +11,23 @@ pub struct AgentIM {
     sessions: Arc<DashMap<String, Session>>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MessageHandlingOptions {
+    pub max_messages: Option<usize>,
+    pub context_message_limit: usize,
+    pub agent_timeout_ms: Option<u64>,
+}
+
+impl Default for MessageHandlingOptions {
+    fn default() -> Self {
+        Self {
+            max_messages: None,
+            context_message_limit: 10,
+            agent_timeout_ms: None,
+        }
+    }
+}
+
 impl AgentIM {
     pub fn new() -> Self {
         Self {
@@ -105,7 +122,11 @@ impl AgentIM {
         path.with_file_name(format!("{}.bak.{}", file_name, index))
     }
 
-    pub fn save_sessions_to_path_with_rotation(&self, path: &str, backup_count: usize) -> Result<()> {
+    pub fn save_sessions_to_path_with_rotation(
+        &self,
+        path: &str,
+        backup_count: usize,
+    ) -> Result<()> {
         let sessions = self.list_sessions();
         let content = serde_json::to_string_pretty(&sessions)?;
         let path = std::path::Path::new(path);
@@ -193,7 +214,8 @@ impl AgentIM {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| AgentError::Unknown("No valid session snapshot found".to_string())))
+        Err(last_error
+            .unwrap_or_else(|| AgentError::Unknown("No valid session snapshot found".to_string())))
     }
 
     pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {
@@ -236,14 +258,14 @@ impl AgentIM {
         let response = if let Some(timeout_ms) = agent_timeout_ms {
             tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
-                agent.send_message(context),
+                agent.send_message(&mut session, context),
             )
             .await
             .map_err(|_| {
                 AgentError::TimeoutError(format!("agent request exceeded {}ms", timeout_ms))
             })??
         } else {
-            agent.send_message(context).await?
+            agent.send_message(&mut session, context).await?
         };
 
         // Add agent response to session
@@ -282,13 +304,13 @@ impl AgentIM {
         reply_target: Option<&str>,
         user_message: String,
     ) -> Result<String> {
-        self.handle_incoming_message_with_limit(
+        self.handle_incoming_message_with_options(
             agent_id,
             channel_id,
             user_id,
             reply_target,
             user_message,
-            None,
+            MessageHandlingOptions::default(),
         )
         .await
     }
@@ -302,51 +324,28 @@ impl AgentIM {
         user_message: String,
         max_messages: Option<usize>,
     ) -> Result<String> {
-        self.handle_incoming_message_with_limits(
+        self.handle_incoming_message_with_options(
             agent_id,
             channel_id,
             user_id,
             reply_target,
             user_message,
-            max_messages,
-            10,
+            MessageHandlingOptions {
+                max_messages,
+                ..MessageHandlingOptions::default()
+            },
         )
         .await
     }
 
-    pub async fn handle_incoming_message_with_limits(
+    pub async fn handle_incoming_message_with_options(
         &self,
         agent_id: &str,
         channel_id: &str,
         user_id: &str,
         reply_target: Option<&str>,
         user_message: String,
-        max_messages: Option<usize>,
-        context_message_limit: usize,
-    ) -> Result<String> {
-        self.handle_incoming_message_with_runtime_limits(
-            agent_id,
-            channel_id,
-            user_id,
-            reply_target,
-            user_message,
-            max_messages,
-            context_message_limit,
-            None,
-        )
-        .await
-    }
-
-    pub async fn handle_incoming_message_with_runtime_limits(
-        &self,
-        agent_id: &str,
-        channel_id: &str,
-        user_id: &str,
-        reply_target: Option<&str>,
-        user_message: String,
-        max_messages: Option<usize>,
-        context_message_limit: usize,
-        agent_timeout_ms: Option<u64>,
+        options: MessageHandlingOptions,
     ) -> Result<String> {
         let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
 
@@ -362,12 +361,12 @@ impl AgentIM {
             .send_to_agent_with_context_limit_and_timeout(
                 &session_id,
                 user_message,
-                context_message_limit,
-                agent_timeout_ms,
+                options.context_message_limit,
+                options.agent_timeout_ms,
             )
             .await?;
 
-        if let Some(max_messages) = max_messages {
+        if let Some(max_messages) = options.max_messages {
             self.trim_session_history(&session_id, max_messages)?;
         }
 
@@ -442,7 +441,7 @@ mod tests {
     use crate::agent::{Agent, ClaudeAgent};
     use crate::channel::{Channel, ChannelMessage, TelegramChannel};
     use crate::config::{AgentType, ChannelType};
-    use crate::session::Message;
+    use crate::session::{Message, Session};
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
 
@@ -501,8 +500,15 @@ mod tests {
             "mock-agent"
         }
 
-        async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
-            let last = messages.last().map(|msg| msg.content.clone()).unwrap_or_default();
+        async fn send_message(
+            &self,
+            _session: &mut Session,
+            messages: Vec<Message>,
+        ) -> Result<String> {
+            let last = messages
+                .last()
+                .map(|msg| msg.content.clone())
+                .unwrap_or_default();
             Ok(format!("echo:{}", last))
         }
 
@@ -581,6 +587,9 @@ mod tests {
         );
 
         let sent = sent_messages.lock().unwrap();
-        assert_eq!(sent.as_slice(), &[("channel-42".to_string(), "echo:ping".to_string())]);
+        assert_eq!(
+            sent.as_slice(),
+            &[("channel-42".to_string(), "echo:ping".to_string())]
+        );
     }
 }

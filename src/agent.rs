@@ -1,6 +1,6 @@
 use crate::config::AgentType;
 use crate::error::{AgentError, Result};
-use crate::session::Message;
+use crate::session::{Message, Session};
 use async_trait::async_trait;
 
 fn openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
@@ -20,7 +20,7 @@ pub trait Agent: Send + Sync {
     fn agent_type(&self) -> AgentType;
     fn id(&self) -> &str;
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String>;
+    async fn send_message(&self, session: &mut Session, messages: Vec<Message>) -> Result<String>;
     async fn health_check(&self) -> Result<()>;
 }
 
@@ -49,7 +49,7 @@ impl Agent for ClaudeAgent {
         &self.id
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
         // 本地模拟响应，实际调用由外部CLI处理
         let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Claude {}] Processed: {}", self.model, last_msg);
@@ -87,7 +87,7 @@ impl Agent for CodexAgent {
         &self.id
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
         let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Codex {}] Processed: {}", self.model, last_msg);
         Ok(response)
@@ -119,7 +119,7 @@ impl Agent for PiAgent {
         &self.id
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
         let last_msg = messages.last().map(|m| m.content.as_str()).unwrap_or("");
         let response = format!("[Pi] Processed: {}", last_msg);
         Ok(response)
@@ -168,7 +168,7 @@ impl Agent for OpenAiCompatibleAgent {
         &self.id
     }
 
-    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
         let payload = serde_json::json!({
             "model": self.model,
             "messages": openai_messages(&messages),

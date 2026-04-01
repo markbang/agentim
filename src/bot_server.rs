@@ -34,8 +34,15 @@ pub struct RoutingRule {
 
 impl RoutingRule {
     fn matches(&self, channel: &str, user_id: &str, reply_target: &str) -> bool {
-        self.channel.as_deref().map(|value| value == channel).unwrap_or(true)
-            && self.user_id.as_deref().map(|value| value == user_id).unwrap_or(true)
+        self.channel
+            .as_deref()
+            .map(|value| value == channel)
+            .unwrap_or(true)
+            && self
+                .user_id
+                .as_deref()
+                .map(|value| value == user_id)
+                .unwrap_or(true)
             && self
                 .user_prefix
                 .as_deref()
@@ -168,8 +175,8 @@ struct AcpSessionReview {
     session_id: String,
     agent_id: String,
     channel_id: String,
-    user_id: String,
-    remote_session_id: String,
+    user_id: Option<String>,
+    remote_session_id: Option<String>,
     backend: String,
     agent: Option<String>,
     stop_reason: Option<String>,
@@ -188,7 +195,7 @@ struct FeishuChallengeResponse {
     challenge: String,
 }
 
-fn collect_acp_sessions(agentim: &AgentIM) -> Vec<AcpSessionReview> {
+fn collect_acp_sessions(agentim: &AgentIM, include_sensitive_ids: bool) -> Vec<AcpSessionReview> {
     let mut sessions = agentim
         .list_sessions()
         .into_iter()
@@ -198,8 +205,8 @@ fn collect_acp_sessions(agentim: &AgentIM) -> Vec<AcpSessionReview> {
                 session_id: session.id,
                 agent_id: session.agent_id,
                 channel_id: session.channel_id,
-                user_id: session.user_id,
-                remote_session_id,
+                user_id: include_sensitive_ids.then_some(session.user_id),
+                remote_session_id: include_sensitive_ids.then_some(remote_session_id),
                 backend: session
                     .metadata
                     .get("acp_backend")
@@ -253,7 +260,11 @@ fn prune_replay_cache(state: &AppState, oldest_allowed_timestamp: i64) {
     }
 }
 
-fn authorize_signed_webhook(headers: &HeaderMap, body: &Bytes, state: &AppState) -> Result<(), String> {
+fn authorize_signed_webhook(
+    headers: &HeaderMap,
+    body: &Bytes,
+    state: &AppState,
+) -> Result<(), String> {
     let Some(secret) = state.config.webhook_signing_secret.as_deref() else {
         return Ok(());
     };
@@ -483,7 +494,10 @@ async fn reviewz(
                 .discord_interaction_public_key
                 .is_some(),
             feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
-            acp_sessions: collect_acp_sessions(&state.agentim),
+            acp_sessions: collect_acp_sessions(
+                &state.agentim,
+                state.config.webhook_secret.is_some(),
+            ),
         }),
     )
 }

@@ -49,7 +49,7 @@ pub struct Args {
     #[arg(long)]
     pub qq_bot_token: Option<String>,
 
-    /// Default agent type to use (claude, codex, pi, openai) when no channel-specific override is set
+    /// Default agent type to use (claude, codex, pi, openai, acp) when no channel-specific override is set
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -84,6 +84,22 @@ pub struct Args {
     /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
     #[arg(long)]
     pub openai_max_retries: Option<usize>,
+
+    /// Command used to launch an ACP-compatible agent subprocess
+    #[arg(long)]
+    pub acp_command: Option<String>,
+
+    /// Extra argument passed to the ACP-compatible agent subprocess; may be repeated
+    #[arg(long = "acp-arg")]
+    pub acp_args: Vec<String>,
+
+    /// Working directory shared with the ACP-compatible agent subprocess and ACP sessions
+    #[arg(long)]
+    pub acp_cwd: Option<String>,
+
+    /// Environment variable passed to the ACP-compatible agent subprocess as KEY=VALUE; may be repeated
+    #[arg(long = "acp-env")]
+    pub acp_env: Vec<String>,
 
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]
