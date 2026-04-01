@@ -3,45 +3,56 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to publish or repair (for example: v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
-  create-release:
-    name: Create Release
+  ensure-release:
+    name: Ensure Release
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Ensure GitHub release exists
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists"
+          else
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --generate-notes \
+              --title "Release $RELEASE_TAG"
+          fi
 
   build-release:
-    name: Build Release
-    needs: create-release
+    name: Build Release (${{ matrix.asset_name }})
+    needs: ensure-release
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: agentim
             asset_name: agentim-linux-x86_64
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             artifact_name: agentim
             asset_name: agentim-macos-x86_64
-          - os: macos-latest
+          - os: macos-15
             target: aarch64-apple-darwin
             artifact_name: agentim
             asset_name: agentim-macos-aarch64
@@ -50,19 +61,18 @@ jobs:
             artifact_name: agentim.exe
             asset_name: agentim-windows-x86_64.exe
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+      - name: Prepare asset
+        shell: bash
+        run: cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "${{ matrix.asset_name }}"
+      - name: Upload release asset
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "./${{ matrix.asset_name }}" --clobber
