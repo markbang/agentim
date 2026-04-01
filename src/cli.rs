@@ -49,6 +49,22 @@ pub struct Args {
     #[arg(long)]
     pub qq_bot_token: Option<String>,
 
+    /// Slack bot token (xoxb-...)
+    #[arg(long)]
+    pub slack_token: Option<String>,
+
+    /// Slack signing secret for webhook verification
+    #[arg(long)]
+    pub slack_signing_secret: Option<String>,
+
+    /// DingTalk robot webhook URL or access token
+    #[arg(long)]
+    pub dingtalk_token: Option<String>,
+
+    /// DingTalk robot secret for signing
+    #[arg(long)]
+    pub dingtalk_secret: Option<String>,
+
     /// Default agent type to use (claude, codex, pi, openai, acp) when no channel-specific override is set
     #[arg(long)]
     pub agent: Option<String>,
@@ -68,6 +84,14 @@ pub struct Args {
     /// Agent override for QQ traffic
     #[arg(long)]
     pub qq_agent: Option<String>,
+
+    /// Agent override for Slack traffic
+    #[arg(long)]
+    pub slack_agent: Option<String>,
+
+    /// Agent override for DingTalk traffic
+    #[arg(long)]
+    pub dingtalk_agent: Option<String>,
 
     /// API key for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]

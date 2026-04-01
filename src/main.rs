@@ -15,8 +15,9 @@ use acp::{AcpAgent, AcpBackendConfig};
 use agent::{ClaudeAgent, CodexAgent, OpenAiCompatibleAgent, PiAgent};
 use bot_server::{BotServerConfig, RoutingRule};
 use bots::{
-    DiscordBotChannel, FeishuBotChannel, QQBotChannel, TelegramBotChannel, DISCORD_CHANNEL_ID,
-    FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
+    DingTalkBotChannel, DiscordBotChannel, FeishuBotChannel, QQBotChannel, SlackBotChannel,
+    TelegramBotChannel, DINGTALK_CHANNEL_ID, DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID,
+    SLACK_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
 };
 use channel::Channel;
 use clap::Parser;
@@ -43,6 +44,8 @@ struct RuntimeConfig {
     discord_agent: Option<String>,
     feishu_agent: Option<String>,
     qq_agent: Option<String>,
+    slack_agent: Option<String>,
+    dingtalk_agent: Option<String>,
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
@@ -63,6 +66,10 @@ struct RuntimeConfig {
     feishu_app_id: Option<String>,
     feishu_app_secret: Option<String>,
     feishu_verification_token: Option<String>,
+    slack_token: Option<String>,
+    slack_signing_secret: Option<String>,
+    dingtalk_token: Option<String>,
+    dingtalk_secret: Option<String>,
     qq_token: Option<String>,
     qq_bot_id: Option<String>,
     qq_bot_token: Option<String>,
@@ -234,6 +241,8 @@ async fn main() -> anyhow::Result<()> {
     let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
     let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
     let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
+    let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
+    let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
     let telegram_webhook_secret_token = merge_option(
@@ -270,6 +279,13 @@ async fn main() -> anyhow::Result<()> {
         args.feishu_verification_token,
         runtime_config.feishu_verification_token,
     );
+    let slack_token = merge_option(args.slack_token, runtime_config.slack_token);
+    let slack_signing_secret = merge_option(
+        args.slack_signing_secret,
+        runtime_config.slack_signing_secret,
+    );
+    let dingtalk_token = merge_option(args.dingtalk_token, runtime_config.dingtalk_token);
+    let dingtalk_secret = merge_option(args.dingtalk_secret, runtime_config.dingtalk_secret);
     let qq_token = merge_option(args.qq_token, runtime_config.qq_token);
     let qq_bot_id = merge_option(args.qq_bot_id, runtime_config.qq_bot_id);
     let qq_bot_token = merge_option(args.qq_bot_token, runtime_config.qq_bot_token);
@@ -364,6 +380,27 @@ async fn main() -> anyhow::Result<()> {
         register_agent_variant(&agentim, "qq-agent", agent_type, &agent_runtime_options)?;
         cli::print_info(&format!("QQ traffic -> {} agent", agent_type));
         "qq-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let slack_agent_id = if let Some(agent_type) = slack_agent.as_deref() {
+        register_agent_variant(&agentim, "slack-agent", agent_type, &agent_runtime_options)?;
+        cli::print_info(&format!("Slack traffic -> {} agent", agent_type));
+        "slack-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let dingtalk_agent_id = if let Some(agent_type) = dingtalk_agent.as_deref() {
+        register_agent_variant(
+            &agentim,
+            "dingtalk-agent",
+            agent_type,
+            &agent_runtime_options,
+        )?;
+        cli::print_info(&format!("DingTalk traffic -> {} agent", agent_type));
+        "dingtalk-agent".to_string()
     } else {
         "default-agent".to_string()
     };
@@ -491,6 +528,44 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    if let Some(token) = slack_token {
+        cli::print_info("Initializing Slack Bot...");
+        let slack_bot = Arc::new(SlackBotChannel::new(
+            SLACK_CHANNEL_ID.to_string(),
+            token,
+            slack_signing_secret.clone(),
+        ));
+        agentim.register_channel(SLACK_CHANNEL_ID.to_string(), slack_bot.clone())?;
+
+        if args.dry_run {
+            cli::print_info("Skipping Slack health check in dry-run mode");
+        } else {
+            match Channel::health_check(slack_bot.as_ref()).await {
+                Ok(_) => cli::print_success("Slack Bot connected"),
+                Err(e) => cli::print_error(&format!("Slack Bot connection failed: {}", e)),
+            }
+        }
+    }
+
+    if let Some(token) = dingtalk_token {
+        cli::print_info("Initializing DingTalk Bot...");
+        let dingtalk_bot = Arc::new(DingTalkBotChannel::new(
+            DINGTALK_CHANNEL_ID.to_string(),
+            Some(token),
+            dingtalk_secret.clone(),
+        ));
+        agentim.register_channel(DINGTALK_CHANNEL_ID.to_string(), dingtalk_bot.clone())?;
+
+        if args.dry_run {
+            cli::print_info("Skipping DingTalk health check in dry-run mode");
+        } else {
+            match Channel::health_check(dingtalk_bot.as_ref()).await {
+                Ok(_) => cli::print_success("DingTalk Bot connected"),
+                Err(e) => cli::print_error(&format!("DingTalk Bot connection failed: {}", e)),
+            }
+        }
+    }
+
     if let Some(path) = state_file.as_deref() {
         let (restored, loaded_from) = if state_backup_count > 0 {
             agentim.load_sessions_from_path_with_fallback(path, state_backup_count)?
@@ -542,6 +617,12 @@ async fn main() -> anyhow::Result<()> {
     if feishu_verification_token.is_some() {
         cli::print_info("Feishu webhook verification token enabled");
     }
+    if slack_signing_secret.is_some() {
+        cli::print_info("Slack webhook signature verification enabled");
+    }
+    if dingtalk_secret.is_some() {
+        cli::print_info("DingTalk webhook signature enabled");
+    }
 
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
@@ -556,6 +637,8 @@ async fn main() -> anyhow::Result<()> {
         discord_agent_id,
         feishu_agent_id,
         qq_agent_id,
+        slack_agent_id,
+        dingtalk_agent_id,
         routing_rules,
         max_session_messages,
         context_message_limit,
@@ -568,6 +651,8 @@ async fn main() -> anyhow::Result<()> {
         telegram_webhook_secret_token,
         discord_interaction_public_key,
         feishu_verification_token,
+        slack_signing_secret,
+        dingtalk_secret,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;

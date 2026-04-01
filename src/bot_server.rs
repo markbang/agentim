@@ -1,6 +1,8 @@
+use crate::bots::dingtalk::{dingtalk_webhook_handler, DingTalkWebhook};
 use crate::bots::discord::{discord_webhook_handler, DiscordMessage};
 use crate::bots::feishu::{feishu_webhook_handler, FeishuMessage};
 use crate::bots::qq::{qq_webhook_handler, QQMessage};
+use crate::bots::slack::{slack_webhook_handler, SlackEvent};
 use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
 use crate::error::AgentError;
 use crate::manager::AgentIM;
@@ -80,6 +82,8 @@ pub struct BotServerConfig {
     pub discord_agent_id: String,
     pub feishu_agent_id: String,
     pub qq_agent_id: String,
+    pub slack_agent_id: String,
+    pub dingtalk_agent_id: String,
     pub routing_rules: Vec<RoutingRule>,
     pub max_session_messages: Option<usize>,
     pub context_message_limit: usize,
@@ -92,6 +96,8 @@ pub struct BotServerConfig {
     pub telegram_webhook_secret_token: Option<String>,
     pub discord_interaction_public_key: Option<String>,
     pub feishu_verification_token: Option<String>,
+    pub slack_signing_secret: Option<String>,
+    pub dingtalk_secret: Option<String>,
 }
 
 impl BotServerConfig {
@@ -118,6 +124,8 @@ impl Default for BotServerConfig {
             discord_agent_id: "default-agent".to_string(),
             feishu_agent_id: "default-agent".to_string(),
             qq_agent_id: "default-agent".to_string(),
+            slack_agent_id: "default-agent".to_string(),
+            dingtalk_agent_id: "default-agent".to_string(),
             routing_rules: Vec::new(),
             max_session_messages: None,
             context_message_limit: 10,
@@ -130,6 +138,8 @@ impl Default for BotServerConfig {
             telegram_webhook_secret_token: None,
             discord_interaction_public_key: None,
             feishu_verification_token: None,
+            slack_signing_secret: None,
+            dingtalk_secret: None,
         }
     }
 }
@@ -167,6 +177,8 @@ struct ReviewResponse {
     telegram_webhook_secret_token_enabled: bool,
     discord_interaction_public_key_enabled: bool,
     feishu_verification_token_enabled: bool,
+    slack_signing_secret_enabled: bool,
+    dingtalk_secret_enabled: bool,
     acp_sessions: Vec<AcpSessionReview>,
 }
 
@@ -188,6 +200,8 @@ struct PlatformAgents {
     discord: String,
     feishu: String,
     qq: String,
+    slack: String,
+    dingtalk: String,
 }
 
 #[derive(Serialize)]
@@ -446,6 +460,8 @@ async fn reviewz(
                     discord: String::new(),
                     feishu: String::new(),
                     qq: String::new(),
+                    slack: String::new(),
+                    dingtalk: String::new(),
                 },
                 routing_rules: Vec::new(),
                 max_session_messages: None,
@@ -459,6 +475,8 @@ async fn reviewz(
                 telegram_webhook_secret_token_enabled: false,
                 discord_interaction_public_key_enabled: false,
                 feishu_verification_token_enabled: false,
+                slack_signing_secret_enabled: false,
+                dingtalk_secret_enabled: false,
                 acp_sessions: Vec::new(),
             }),
         );
@@ -475,6 +493,8 @@ async fn reviewz(
                 discord: state.config.discord_agent_id.clone(),
                 feishu: state.config.feishu_agent_id.clone(),
                 qq: state.config.qq_agent_id.clone(),
+                slack: state.config.slack_agent_id.clone(),
+                dingtalk: state.config.dingtalk_agent_id.clone(),
             },
             routing_rules: state.config.routing_rules.clone(),
             max_session_messages: state.config.max_session_messages,
@@ -494,6 +514,8 @@ async fn reviewz(
                 .discord_interaction_public_key
                 .is_some(),
             feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
+            slack_signing_secret_enabled: state.config.slack_signing_secret.is_some(),
+            dingtalk_secret_enabled: state.config.dingtalk_secret.is_some(),
             acp_sessions: collect_acp_sessions(
                 &state.agentim,
                 state.config.webhook_secret.is_some(),
@@ -724,6 +746,153 @@ async fn qq_webhook(
     }
 }
 
+async fn slack_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, String) {
+    if let Err(err) = authorize_shared(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    // Verify Slack signature if configured
+    if let Some(ref _secret) = state.config.slack_signing_secret {
+        let timestamp = headers
+            .get("x-slack-request-timestamp")
+            .and_then(|value| value.to_str().ok());
+        let signature = headers
+            .get("x-slack-signature")
+            .and_then(|value| value.to_str().ok());
+
+        if let (Some(ts), Some(sig)) = (timestamp, signature) {
+            // Get the channel to verify signature
+            if let Ok(channel) = state.agentim.get_channel(crate::bots::SLACK_CHANNEL_ID) {
+                if let Some(slack_channel) = channel
+                    .as_any()
+                    .downcast_ref::<crate::bots::SlackBotChannel>()
+                {
+                    if !slack_channel
+                        .verify_signature(&body, ts, sig)
+                        .unwrap_or(false)
+                    {
+                        return (
+                            StatusCode::UNAUTHORIZED,
+                            "invalid Slack signature".to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let event: SlackEvent = match parse_json_body(&body) {
+        Ok(event) => event,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
+
+    // Handle URL verification challenge
+    if event.event_type == "url_verification" {
+        if let Some(challenge) = event.challenge {
+            return (StatusCode::OK, challenge);
+        }
+    }
+
+    let agent_id = event
+        .event
+        .as_ref()
+        .map(|detail| {
+            let user_id = detail.user.as_deref().unwrap_or("");
+            let channel = detail.channel.as_deref().unwrap_or("");
+            state
+                .config
+                .resolve_agent(
+                    "slack",
+                    user_id,
+                    channel,
+                    state.config.slack_agent_id.as_str(),
+                )
+                .to_string()
+        })
+        .unwrap_or_else(|| state.config.slack_agent_id.clone());
+
+    match slack_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        state.config.context_message_limit,
+        state.config.agent_timeout_ms,
+        event,
+    )
+    .await
+    {
+        Ok(challenge_response) => match persist_if_configured(&state) {
+            Ok(_) => {
+                if let Some(challenge) = challenge_response {
+                    (StatusCode::OK, challenge)
+                } else {
+                    (StatusCode::OK, "ok".to_string())
+                }
+            }
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
+        Err(err) => {
+            tracing::error!("slack webhook failed: {}", err);
+            (webhook_error_status(&err), err.to_string())
+        }
+    }
+}
+
+async fn dingtalk_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, String) {
+    if let Err(err) = authorize_shared(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let webhook: DingTalkWebhook = match parse_json_body(&body) {
+        Ok(webhook) => webhook,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
+
+    let agent_id = state
+        .config
+        .resolve_agent(
+            "dingtalk",
+            &webhook.sender_id,
+            &webhook.conversation_id,
+            state.config.dingtalk_agent_id.as_str(),
+        )
+        .to_string();
+
+    match dingtalk_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        state.config.context_message_limit,
+        state.config.agent_timeout_ms,
+        webhook,
+    )
+    .await
+    {
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
+        Err(err) => {
+            tracing::error!("dingtalk webhook failed: {}", err);
+            (webhook_error_status(&err), err.to_string())
+        }
+    }
+}
+
 pub fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
     create_bot_router_with_config(agentim, BotServerConfig::default())
 }
@@ -736,6 +905,8 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/discord", post(discord_webhook))
         .route("/feishu", post(feishu_webhook))
         .route("/qq", post(qq_webhook))
+        .route("/slack", post(slack_webhook))
+        .route("/dingtalk", post(dingtalk_webhook))
         .with_state(AppState {
             agentim,
             config,
