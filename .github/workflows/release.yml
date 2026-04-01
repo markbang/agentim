@@ -17,6 +17,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   ensure-release:
@@ -27,10 +28,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists"
           else
             gh release create "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
               --verify-tag \
               --generate-notes \
               --title "Release $RELEASE_TAG"
@@ -75,4 +77,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" "./${{ matrix.asset_name }}" --clobber
+        run: gh release upload "$RELEASE_TAG" "./${{ matrix.asset_name }}" --repo "$GH_REPO" --clobber
