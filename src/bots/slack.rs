@@ -1,7 +1,7 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
-use crate::manager::AgentIM;
+use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,9 @@ impl SlackBotChannel {
             .json(&message)
             .send()
             .await
-            .map_err(|e| crate::error::AgentError::ChannelError(format!("Slack API error: {}", e)))?;
+            .map_err(|e| {
+                crate::error::AgentError::ChannelError(format!("Slack API error: {}", e))
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -128,7 +130,11 @@ impl SlackBotChannel {
             crate::error::AgentError::ChannelError(format!("Failed to parse Slack response: {}", e))
         })?;
 
-        if !response_json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if !response_json
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             let error = response_json
                 .get("error")
                 .and_then(|v| v.as_str())
@@ -188,7 +194,11 @@ impl Channel for SlackBotChannel {
             crate::error::AgentError::ChannelError(format!("Failed to parse Slack response: {}", e))
         })?;
 
-        if !response_json.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if !response_json
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             let error = response_json
                 .get("error")
                 .and_then(|v| v.as_str())
@@ -250,15 +260,17 @@ pub async fn slack_webhook_handler(
     let reply_target = event_detail.thread_ts.as_deref().unwrap_or(&channel);
 
     agentim
-        .handle_incoming_message_with_runtime_limits(
+        .handle_incoming_message_with_options(
             agent_id,
             SLACK_CHANNEL_ID,
             &user_id,
             Some(reply_target),
             text,
-            max_session_messages,
-            context_message_limit,
-            agent_timeout_ms,
+            MessageHandlingOptions {
+                max_messages: max_session_messages,
+                context_message_limit,
+                agent_timeout_ms,
+            },
         )
         .await?;
 

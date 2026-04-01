@@ -1,7 +1,7 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
-use crate::manager::AgentIM;
+use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -89,17 +89,12 @@ impl WeChatWorkBotChannel {
             self.corp_id, self.secret
         );
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                crate::error::AgentError::ChannelError(format!(
-                    "WeChat Work token request failed: {}",
-                    e
-                ))
-            })?;
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            crate::error::AgentError::ChannelError(format!(
+                "WeChat Work token request failed: {}",
+                e
+            ))
+        })?;
 
         let token_response: WeChatWorkTokenResponse = response.json().await.map_err(|e| {
             crate::error::AgentError::ChannelError(format!(
@@ -115,13 +110,11 @@ impl WeChatWorkBotChannel {
             )));
         }
 
-        token_response
-            .access_token
-            .ok_or_else(|| {
-                crate::error::AgentError::ChannelError(
-                    "WeChat Work token response missing access_token".to_string(),
-                )
-            })
+        token_response.access_token.ok_or_else(|| {
+            crate::error::AgentError::ChannelError(
+                "WeChat Work token response missing access_token".to_string(),
+            )
+        })
     }
 
     /// Send message via WeChat Work application API
@@ -246,15 +239,17 @@ pub async fn wechatwork_webhook_handler(
     let reply_target: Option<&str> = webhook.chat_id.as_deref();
 
     agentim
-        .handle_incoming_message_with_runtime_limits(
+        .handle_incoming_message_with_options(
             agent_id,
             WECHATWORK_CHANNEL_ID,
             &user_id,
             reply_target,
             text,
-            max_session_messages,
-            context_message_limit,
-            agent_timeout_ms,
+            MessageHandlingOptions {
+                max_messages: max_session_messages,
+                context_message_limit,
+                agent_timeout_ms,
+            },
         )
         .await?;
 

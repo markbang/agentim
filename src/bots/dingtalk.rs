@@ -1,7 +1,7 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
-use crate::manager::AgentIM;
+use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -278,15 +278,17 @@ pub async fn dingtalk_webhook_handler(
     let reply_target = Some(webhook.conversation_id.as_str());
 
     agentim
-        .handle_incoming_message_with_runtime_limits(
+        .handle_incoming_message_with_options(
             agent_id,
             DINGTALK_CHANNEL_ID,
             &user_id,
             reply_target,
             text,
-            max_session_messages,
-            context_message_limit,
-            agent_timeout_ms,
+            MessageHandlingOptions {
+                max_messages: max_session_messages,
+                context_message_limit,
+                agent_timeout_ms,
+            },
         )
         .await?;
 

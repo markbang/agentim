@@ -1,7 +1,7 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
-use crate::manager::AgentIM;
+use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use hmac::{Hmac, Mac};
@@ -277,15 +277,17 @@ pub async fn line_webhook_handler(
             .map(|s| s.as_str());
 
         agentim
-            .handle_incoming_message_with_runtime_limits(
+            .handle_incoming_message_with_options(
                 agent_id,
                 LINE_CHANNEL_ID,
                 &user_id,
                 reply_target,
                 text.clone(),
-                max_session_messages,
-                context_message_limit,
-                agent_timeout_ms,
+                MessageHandlingOptions {
+                    max_messages: max_session_messages,
+                    context_message_limit,
+                    agent_timeout_ms,
+                },
             )
             .await?;
     }

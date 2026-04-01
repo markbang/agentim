@@ -1,7 +1,7 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
 use crate::error::Result;
-use crate::manager::AgentIM;
+use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -155,15 +155,17 @@ pub async fn feishu_webhook_handler(
     let content = message.event.message.content;
 
     agentim
-        .handle_incoming_message_with_runtime_limits(
+        .handle_incoming_message_with_options(
             agent_id,
             FEISHU_CHANNEL_ID,
             &user_id,
             Some(&user_id),
             content,
-            max_session_messages,
-            context_message_limit,
-            agent_timeout_ms,
+            MessageHandlingOptions {
+                max_messages: max_session_messages,
+                context_message_limit,
+                agent_timeout_ms,
+            },
         )
         .await?;
 

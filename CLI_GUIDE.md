@@ -1,312 +1,228 @@
 # AgentIM CLI 使用指南
 
-## 命令概览
+## 当前运行模型
 
-### Agent 管理
+当前 `agentim` 不是“资源注册型”多子命令 CLI，而是一个**参数驱动的 webhook bridge 进程**：
 
-```bash
-# 列出所有已注册的Agent
-agentim agent list
+1. 选择默认 agent（`--agent`）
+2. 可按平台覆盖 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
+3. 可通过 `routing_rules` 做用户级 / reply-target 级路由
+4. 注册你提供凭证的平台 channel
+5. 启动 HTTP server，接收各平台 webhook
+6. 自动创建 / 复用 session，并把回复回发到对应平台
 
-# 注册Claude Agent
-agentim agent register \
-  --id claude-main \
-  --agent-type claude \
-  --api-key sk-ant-xxxxx \
-  --model claude-3-5-sonnet-20241022
+如果你要扩展更复杂的组织级策略、鉴权或平台适配，请直接使用库层 API，而不是寻找旧版 `agent register` / `channel register` 子命令。
 
-# 注册Codex Agent
-agentim agent register \
-  --id codex-main \
-  --agent-type codex \
-  --api-key sk-xxxxx
+## 最常用命令
 
-# 注册Pi Agent
-agentim agent register \
-  --id pi-main \
-  --agent-type pi \
-  --api-key pi-xxxxx
-
-# 检查Agent健康状态
-agentim agent health --id claude-main
-```
-
-### Channel 管理
+### 查看参数
 
 ```bash
-# 列出所有已注册的Channel
-agentim channel list
-
-# 注册Telegram Channel
-agentim channel register \
-  --id tg-main \
-  --channel-type telegram \
-  --credentials '{"token":"123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"}'
-
-# 注册Discord Channel
-agentim channel register \
-  --id discord-main \
-  --channel-type discord \
-  --credentials '{"token":"YOUR_DISCORD_BOT_TOKEN"}'
-
-# 注册Feishu Channel
-agentim channel register \
-  --id feishu-main \
-  --channel-type feishu \
-  --credentials '{"app_id":"YOUR_APP_ID","app_secret":"YOUR_APP_SECRET"}'
-
-# 注册QQ Channel
-agentim channel register \
-  --id qq-main \
-  --channel-type qq \
-  --credentials '{"bot_id":"YOUR_BOT_ID","bot_token":"YOUR_BOT_TOKEN"}'
-
-# 检查Channel健康状态
-agentim channel health --id tg-main
+cargo run -- --help
 ```
 
-### Session 管理
+### 本地 dry-run 校验启动参数
 
 ```bash
-# 列出所有活跃Session
-agentim session list
+cargo run -- --dry-run --agent claude --telegram-token "$TELEGRAM_TOKEN"
 
-# 创建新Session
-agentim session create \
-  --agent-id claude-main \
-  --channel-id tg-main \
-  --user-id user123
-
-# 获取Session详情
-agentim session get --id <session-id>
-
-# 删除Session
-agentim session delete --id <session-id>
-
-# 在Session中发送消息
-agentim session send \
-  --session-id <session-id> \
-  --message "Hello, Claude!"
+# 或使用环境变量包装脚本
+AGENTIM_DRY_RUN=1 ./start.sh
+AGENTIM_DRY_RUN=1 ./setup.sh
 ```
 
-### 系统状态
+### 启动 Telegram bridge
 
 ```bash
-# 查看系统状态
-agentim status
+cargo run -- \
+  --agent claude \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --addr 127.0.0.1:8080
 ```
 
-### 交互模式
+### 启动多平台 bridge
 
 ```bash
-# 进入交互模式
-agentim interactive
+cargo run -- \
+  --agent claude \
+  --telegram-agent pi \
+  --discord-agent codex \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --discord-token "$DISCORD_TOKEN" \
+  --feishu-app-id "$FEISHU_APP_ID" \
+  --feishu-app-secret "$FEISHU_APP_SECRET" \
+  --qq-bot-id "$QQ_BOT_ID" \
+  --qq-bot-token "$QQ_BOT_TOKEN"
 ```
 
-## 实际使用场景
-
-### 场景1：设置Telegram + Claude
+### 使用 OpenAI-compatible backend
 
 ```bash
-# 1. 注册Claude Agent
-agentim agent register \
-  --id claude-prod \
-  --agent-type claude \
-  --api-key $ANTHROPIC_API_KEY
-
-# 2. 注册Telegram Channel
-agentim channel register \
-  --id tg-prod \
-  --channel-type telegram \
-  --credentials "{\"token\":\"$TELEGRAM_BOT_TOKEN\"}"
-
-# 3. 创建Session
-SESSION_ID=$(agentim session create \
-  --agent-id claude-prod \
-  --channel-id tg-prod \
-  --user-id telegram_user_123 | grep -oP 'Session created: \K.*')
-
-# 4. 发送消息
-agentim session send \
-  --session-id $SESSION_ID \
-  --message "What is Rust?"
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
+  --telegram-token "$TELEGRAM_TOKEN"
 ```
 
-### 场景2：多Agent多Channel设置
+## `start.sh` 与 `setup.sh`
+
+### `start.sh`
+
+推荐的启动包装脚本，读取环境变量后拼出真实命令，并在二进制缺失或过期时自动执行 `cargo build --release`。
 
 ```bash
-# 注册多个Agent
-agentim agent register --id claude-1 --agent-type claude --api-key $KEY1
-agentim agent register --id codex-1 --agent-type codex --api-key $KEY2
-agentim agent register --id pi-1 --agent-type pi --api-key $KEY3
-
-# 注册多个Channel
-agentim channel register --id tg-1 --channel-type telegram --credentials '{"token":"..."}'
-agentim channel register --id discord-1 --channel-type discord --credentials '{"token":"..."}'
-agentim channel register --id feishu-1 --channel-type feishu --credentials '{"app_id":"...","app_secret":"..."}'
-
-# 为不同用户创建不同的Session
-agentim session create --agent-id claude-1 --channel-id tg-1 --user-id alice
-agentim session create --agent-id codex-1 --channel-id discord-1 --user-id bob
-agentim session create --agent-id pi-1 --channel-id feishu-1 --user-id charlie
+export AGENTIM_CONFIG_FILE=agentim.json
+export AGENTIM_AGENT=claude
+export AGENTIM_ADDR=127.0.0.1:8080
+export TELEGRAM_TOKEN=your-token
+./start.sh
 ```
 
-## 环境变量配置
+### `setup.sh`
 
-创建 `.env` 文件：
+当前 `setup.sh` 是一个**兼容包装器**，会：
+
+- 加载 `.env`（如果存在）
+- 兼容旧变量名 `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN`
+- 在存在 `agentim.json` 时自动设置 `AGENTIM_CONFIG_FILE`
+- 委托给 `./start.sh`
+
+适合把旧文档或旧本地环境平滑迁移到当前启动方式。
+
+## 主要参数
+
+### Agent 选择
+
+- `--agent`
+- `--telegram-agent`
+- `--discord-agent`
+- `--feishu-agent`
+- `--qq-agent`
+
+支持值：`claude`、`codex`、`pi`、`openai`
+
+### OpenAI-compatible backend
+
+- `--openai-api-key`
+- `--openai-base-url`
+- `--openai-model`
+- `--openai-max-retries`
+
+### 平台凭证
+
+- `--telegram-token`
+- `--telegram-webhook-secret-token`
+- `--discord-token`
+- `--discord-interaction-public-key`
+- `--feishu-app-id`
+- `--feishu-app-secret`
+- `--feishu-verification-token`
+- `--qq-bot-id`
+- `--qq-bot-token`
+
+兼容旧格式：
+
+- `--feishu-token app_id:app_secret`
+- `--qq-token bot_id:bot_token`
+
+### Session / 运行时控制
+
+- `--state-file`
+- `--state-backup-count`
+- `--max-session-messages`
+- `--context-message-limit`
+- `--agent-timeout-ms`
+- `--config-file`
+- `--dry-run`
+- `--addr`
+
+### Webhook 安全
+
+- `--webhook-secret`
+- `--webhook-signing-secret`
+- `--webhook-max-skew-seconds`
+- `--telegram-webhook-secret-token`
+- `--discord-interaction-public-key`
+- `--feishu-verification-token`
+
+## 配置文件
+
+可以通过 `--config-file agentim.json` 或 `AGENTIM_CONFIG_FILE=agentim.json` 提供 JSON 配置，命令行参数优先级高于配置文件。
+
+示例：
+
+```json
+{
+  "agent": "claude",
+  "telegram_agent": "pi",
+  "discord_agent": "codex",
+  "routing_rules": [
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "claude"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "pi"}
+  ],
+  "telegram_token": "YOUR_TELEGRAM_TOKEN",
+  "state_file": ".agentim/sessions.json",
+  "state_backup_count": 2,
+  "max_session_messages": 50,
+  "context_message_limit": 12,
+  "agent_timeout_ms": 30000,
+  "addr": "127.0.0.1:8080"
+}
+```
+
+## Webhook 与运维端点
+
+启动后默认会暴露：
+
+- `POST /telegram`
+- `POST /discord`
+- `POST /feishu`
+- `POST /qq`
+- `GET /healthz`
+- `GET /reviewz`
+
+如果配置了 `--webhook-secret`，访问受保护端点时需要携带 `x-agentim-secret`。
+
+## 测试与巡检
 
 ```bash
-# Anthropic (Claude)
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-
-# OpenAI (Codex)
-OPENAI_API_KEY=sk-xxxxx
-
-# Pi
-PI_API_KEY=pi-xxxxx
-
-# Telegram
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-
-# Discord
-DISCORD_BOT_TOKEN=YOUR_DISCORD_BOT_TOKEN
-
-# Feishu
-FEISHU_APP_ID=YOUR_APP_ID
-FEISHU_APP_SECRET=YOUR_APP_SECRET
-
-# QQ
-QQ_BOT_ID=YOUR_BOT_ID
-QQ_BOT_TOKEN=YOUR_BOT_TOKEN
+cargo test --test review_bridge
+./autoresearch.sh
 ```
 
-然后在启动前加载：
+- `review_bridge`：验证 webhook、路由、session、reply-target、安全和持久化关键路径
+- `autoresearch.sh`：输出结构化 acceptance metrics，适合首轮巡检或回归
+
+## 排障建议
+
+### `cargo` 构建失败
+
+优先确认：
 
 ```bash
-source .env
-agentim status
+rustc --version
+cargo --version
+cargo run -- --help
 ```
 
-## 高级用法
+当前仓库通过 `rust-toolchain.toml` 固定到 Rust/Cargo 1.85.0，并应在该工具链下完成解析与构建。
 
-### 使用脚本自动化
+### dry-run 通过，但真实启动失败
 
-创建 `setup.sh`：
+重点检查：
 
-```bash
-#!/bin/bash
+- 平台 token / app secret 是否正确
+- webhook 回调地址是否可被平台访问
+- 是否缺少原生平台签名校验参数
+- 是否误把 `reply_target` 路由规则配置成用户 ID 规则
 
-set -e
+### 收到 webhook，但没有正确回发
 
-echo "Setting up AgentIM..."
+重点检查：
 
-# Load environment
-source .env
-
-# Register agents
-echo "Registering agents..."
-agentim agent register \
-  --id claude-main \
-  --agent-type claude \
-  --api-key $ANTHROPIC_API_KEY
-
-agentim agent register \
-  --id codex-main \
-  --agent-type codex \
-  --api-key $OPENAI_API_KEY
-
-# Register channels
-echo "Registering channels..."
-agentim channel register \
-  --id tg-main \
-  --channel-type telegram \
-  --credentials "{\"token\":\"$TELEGRAM_BOT_TOKEN\"}"
-
-agentim channel register \
-  --id discord-main \
-  --channel-type discord \
-  --credentials "{\"token\":\"$DISCORD_BOT_TOKEN\"}"
-
-# Verify setup
-echo "Verifying setup..."
-agentim status
-
-echo "Setup complete!"
-```
-
-运行：
-
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-### 监控系统
-
-创建 `monitor.sh`：
-
-```bash
-#!/bin/bash
-
-while true; do
-  clear
-  echo "=== AgentIM System Monitor ==="
-  echo "Time: $(date)"
-  echo ""
-  agentim status
-  echo ""
-  echo "Sessions:"
-  agentim session list
-  echo ""
-  sleep 10
-done
-```
-
-## 故障排除
-
-### Agent连接失败
-
-```bash
-# 检查Agent健康状态
-agentim agent health --id claude-main
-
-# 验证API Key
-echo $ANTHROPIC_API_KEY
-```
-
-### Channel连接失败
-
-```bash
-# 检查Channel健康状态
-agentim channel health --id tg-main
-
-# 验证凭证
-agentim channel list
-```
-
-### Session问题
-
-```bash
-# 列出所有Session
-agentim session list
-
-# 获取特定Session详情
-agentim session get --id <session-id>
-
-# 删除有问题的Session
-agentim session delete --id <session-id>
-```
-
-## 性能优化建议
-
-1. **Session清理**: 定期删除不活跃的Session
-2. **Agent轮转**: 使用多个Agent实例进行负载均衡
-3. **Channel缓存**: 缓存Channel连接以减少开销
-4. **消息批处理**: 批量处理消息以提高吞吐量
-
-## 安全建议
-
-1. **API Key管理**: 使用环境变量或密钥管理系统
-2. **权限控制**: 限制CLI访问权限
-3. **日志审计**: 启用日志记录以追踪操作
-4. **速率限制**: 配置API速率限制以防止滥用
+- `routing_rules` 是否把消息路由到了预期 agent
+- 是否配置了 `state_file` 导致旧 session 被恢复
+- Discord / QQ 的 `reply_target` 是否按频道维度匹配

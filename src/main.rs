@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod acp;
 mod agent;
 mod bot_server;
 mod bots;
@@ -10,6 +11,7 @@ mod error;
 mod manager;
 mod session;
 
+use acp::{AcpAgent, AcpBackendConfig};
 use agent::{ClaudeAgent, CodexAgent, OpenAiCompatibleAgent, PiAgent};
 use bot_server::{BotServerConfig, RoutingRule};
 use bots::{
@@ -22,7 +24,7 @@ use clap::Parser;
 use cli::Args;
 use manager::AgentIM;
 use serde::Deserialize;
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RuntimeRoutingRuleConfig {
@@ -48,6 +50,12 @@ struct RuntimeConfig {
     openai_base_url: Option<String>,
     openai_model: Option<String>,
     openai_max_retries: Option<usize>,
+    acp_command: Option<String>,
+    #[serde(default)]
+    acp_args: Vec<String>,
+    acp_cwd: Option<String>,
+    #[serde(default)]
+    acp_env: HashMap<String, String>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
@@ -102,12 +110,47 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
+fn parse_key_value_assignment(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
+    value.split_once('=').map_or_else(
+        || {
+            Err(anyhow::anyhow!(
+                "{} must be provided as KEY=VALUE",
+                flag_name
+            ))
+        },
+        |(key, value)| Ok((key.to_string(), value.to_string())),
+    )
+}
+
+fn parse_env_assignments(
+    values: Vec<String>,
+    flag_name: &str,
+) -> anyhow::Result<HashMap<String, String>> {
+    values
+        .into_iter()
+        .map(|value| parse_key_value_assignment(&value, flag_name))
+        .collect()
+}
+
+fn resolve_absolute_path(path: Option<String>) -> anyhow::Result<PathBuf> {
+    let path = path.map(PathBuf::from).unwrap_or(std::env::current_dir()?);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
     openai_max_retries: Option<usize>,
+    acp_command: Option<String>,
+    acp_args: Vec<String>,
+    acp_cwd: Option<String>,
+    acp_env: HashMap<String, String>,
 }
 
 fn build_agent(
@@ -136,6 +179,22 @@ fn build_agent(
                 OpenAiCompatibleAgent::new(id.to_string(), api_key, base_url, model)
                     .with_max_retries(options.openai_max_retries.unwrap_or(0)),
             ))
+        }
+        "acp" => {
+            let command = options
+                .acp_command
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("acp agent requires --acp-command"))?;
+            let cwd = resolve_absolute_path(options.acp_cwd.clone())?;
+            Ok(Arc::new(AcpAgent::new(
+                id.to_string(),
+                AcpBackendConfig {
+                    command,
+                    args: options.acp_args.clone(),
+                    cwd,
+                    env: options.acp_env.clone(),
+                },
+            )))
         }
         other => Err(anyhow::anyhow!("Unknown agent type: {}", other)),
     }
@@ -176,8 +235,8 @@ async fn main() -> anyhow::Result<()> {
     let runtime_config = load_runtime_config(args.config_file.as_deref())?;
     let agentim = AgentIM::new();
 
-    let default_agent_type = merge_option(args.agent, runtime_config.agent)
-        .unwrap_or_else(|| "claude".to_string());
+    let default_agent_type =
+        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "claude".to_string());
     let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
     let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
     let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
@@ -196,6 +255,18 @@ async fn main() -> anyhow::Result<()> {
     let openai_max_retries = args
         .openai_max_retries
         .or(runtime_config.openai_max_retries);
+    let acp_command = merge_option(args.acp_command, runtime_config.acp_command);
+    let acp_args = if args.acp_args.is_empty() {
+        runtime_config.acp_args
+    } else {
+        args.acp_args
+    };
+    let acp_cwd = merge_option(args.acp_cwd, runtime_config.acp_cwd);
+    let acp_env = if args.acp_env.is_empty() {
+        runtime_config.acp_env
+    } else {
+        parse_env_assignments(args.acp_env, "--acp-env")?
+    };
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -223,7 +294,9 @@ async fn main() -> anyhow::Result<()> {
         .state_backup_count
         .or(runtime_config.state_backup_count)
         .unwrap_or(0);
-    let max_session_messages = args.max_session_messages.or(runtime_config.max_session_messages);
+    let max_session_messages = args
+        .max_session_messages
+        .or(runtime_config.max_session_messages);
     let context_message_limit = args
         .context_message_limit
         .or(runtime_config.context_message_limit)
@@ -246,6 +319,10 @@ async fn main() -> anyhow::Result<()> {
         openai_base_url,
         openai_model,
         openai_max_retries,
+        acp_command,
+        acp_args,
+        acp_cwd,
+        acp_env,
     };
 
     register_agent_variant(
@@ -254,7 +331,10 @@ async fn main() -> anyhow::Result<()> {
         &default_agent_type,
         &agent_runtime_options,
     )?;
-    cli::print_success(&format!("Default agent '{}' registered", default_agent_type));
+    cli::print_success(&format!(
+        "Default agent '{}' registered",
+        default_agent_type
+    ));
     if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
         cli::print_info(&format!(
             "OpenAI-compatible backend retries set to {}",
@@ -263,7 +343,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let telegram_agent_id = if let Some(agent_type) = telegram_agent.as_deref() {
-        register_agent_variant(&agentim, "telegram-agent", agent_type, &agent_runtime_options)?;
+        register_agent_variant(
+            &agentim,
+            "telegram-agent",
+            agent_type,
+            &agent_runtime_options,
+        )?;
         cli::print_info(&format!("Telegram traffic -> {} agent", agent_type));
         "telegram-agent".to_string()
     } else {
@@ -271,7 +356,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let discord_agent_id = if let Some(agent_type) = discord_agent.as_deref() {
-        register_agent_variant(&agentim, "discord-agent", agent_type, &agent_runtime_options)?;
+        register_agent_variant(
+            &agentim,
+            "discord-agent",
+            agent_type,
+            &agent_runtime_options,
+        )?;
         cli::print_info(&format!("Discord traffic -> {} agent", agent_type));
         "discord-agent".to_string()
     } else {
@@ -303,7 +393,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let dingtalk_agent_id = if let Some(agent_type) = dingtalk_agent.as_deref() {
-        register_agent_variant(&agentim, "dingtalk-agent", agent_type, &agent_runtime_options)?;
+        register_agent_variant(
+            &agentim,
+            "dingtalk-agent",
+            agent_type,
+            &agent_runtime_options,
+        )?;
         cli::print_info(&format!("DingTalk traffic -> {} agent", agent_type));
         "dingtalk-agent".to_string()
     } else {
@@ -339,7 +434,10 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
-        let tg_bot = Arc::new(TelegramBotChannel::new(TELEGRAM_CHANNEL_ID.to_string(), token));
+        let tg_bot = Arc::new(TelegramBotChannel::new(
+            TELEGRAM_CHANNEL_ID.to_string(),
+            token,
+        ));
         agentim.register_channel(TELEGRAM_CHANNEL_ID.to_string(), tg_bot.clone())?;
 
         if args.dry_run {
@@ -354,7 +452,10 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = discord_token {
         cli::print_info("Initializing Discord Bot...");
-        let discord_bot = Arc::new(DiscordBotChannel::new(DISCORD_CHANNEL_ID.to_string(), token));
+        let discord_bot = Arc::new(DiscordBotChannel::new(
+            DISCORD_CHANNEL_ID.to_string(),
+            token,
+        ));
         agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot.clone())?;
 
         if args.dry_run {
@@ -471,7 +572,10 @@ async fn main() -> anyhow::Result<()> {
         } else {
             (agentim.load_sessions_from_path(path)?, path.to_string())
         };
-        cli::print_info(&format!("Restored {} sessions from {}", restored, loaded_from));
+        cli::print_info(&format!(
+            "Restored {} sessions from {}",
+            restored, loaded_from
+        ));
         if state_backup_count > 0 {
             cli::print_info(&format!(
                 "State snapshot rotation enabled ({} backup file(s))",

@@ -34,6 +34,8 @@
 ### Review / Ops Endpoints
 - Health → `GET /healthz`
 - Review snapshot → `GET /reviewz`
+  - 包含平台 agent 绑定、routing rules、安全/持久化开关
+  - 若使用 ACP backend，还会列出当前已建立的 ACP session 映射（本地 session、远端 session、backend、agent、stop reason）
 
 ## 关键特性
 
