@@ -215,7 +215,47 @@ docker run -d \
 docker-compose up -d
 ```
 
-### 5. 配置文件
+### 5. 从 Release 安装
+
+也可以直接从发布页下载对应平台的压缩包，而不是本地编译：
+
+- Release 页面：`https://github.com/markbang/agentim/releases`
+- Linux / macOS: `*.tar.gz` + 对应的 `*.sha256`
+- Windows: `*.zip` + 对应的 `*.sha256`
+
+Linux 示例：
+
+```bash
+curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-linux-x86_64.tar.gz
+curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-linux-x86_64.tar.gz.sha256
+shasum -a 256 -c agentim-linux-x86_64.tar.gz.sha256
+tar -xzf agentim-linux-x86_64.tar.gz
+./agentim-linux-x86_64/agentim --help
+```
+
+macOS 示例：
+
+```bash
+curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-macos-aarch64.tar.gz
+curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-macos-aarch64.tar.gz.sha256
+shasum -a 256 -c agentim-macos-aarch64.tar.gz.sha256
+tar -xzf agentim-macos-aarch64.tar.gz
+./agentim-macos-aarch64/agentim --help
+```
+
+Windows PowerShell 示例：
+
+```powershell
+curl.exe -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-windows-x86_64.zip
+curl.exe -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-windows-x86_64.zip.sha256
+$expected = (Get-Content .\agentim-windows-x86_64.zip.sha256).Split()[0]
+$actual = (Get-FileHash .\agentim-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+if ($expected -ne $actual) { throw "SHA256 mismatch" }
+Expand-Archive .\agentim-windows-x86_64.zip -DestinationPath .
+.\agentim-windows-x86_64\agentim.exe --help
+```
+
+### 6. 配置文件
 
 使用 JSON 配置文件可以管理更复杂的设置：
 

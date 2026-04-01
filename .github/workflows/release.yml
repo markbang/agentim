@@ -39,7 +39,7 @@ jobs:
           fi
 
   build-release:
-    name: Build Release (${{ matrix.asset_name }})
+    name: Build Release (${{ matrix.archive_name }})
     needs: ensure-release
     runs-on: ${{ matrix.os }}
     strategy:
@@ -48,20 +48,32 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: agentim
-            asset_name: agentim-linux-x86_64
+            binary_name: agentim
+            archive_name: agentim-linux-x86_64.tar.gz
+            checksum_name: agentim-linux-x86_64.tar.gz.sha256
+            package_dir: agentim-linux-x86_64
+            legacy_asset_name: agentim-linux-x86_64
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            artifact_name: agentim
-            asset_name: agentim-macos-x86_64
+            binary_name: agentim
+            archive_name: agentim-macos-x86_64.tar.gz
+            checksum_name: agentim-macos-x86_64.tar.gz.sha256
+            package_dir: agentim-macos-x86_64
+            legacy_asset_name: agentim-macos-x86_64
           - os: macos-15
             target: aarch64-apple-darwin
-            artifact_name: agentim
-            asset_name: agentim-macos-aarch64
+            binary_name: agentim
+            archive_name: agentim-macos-aarch64.tar.gz
+            checksum_name: agentim-macos-aarch64.tar.gz.sha256
+            package_dir: agentim-macos-aarch64
+            legacy_asset_name: agentim-macos-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: agentim.exe
-            asset_name: agentim-windows-x86_64.exe
+            binary_name: agentim.exe
+            archive_name: agentim-windows-x86_64.zip
+            checksum_name: agentim-windows-x86_64.zip.sha256
+            package_dir: agentim-windows-x86_64
+            legacy_asset_name: agentim-windows-x86_64.exe
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -70,11 +82,42 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-      - name: Prepare asset
-        shell: bash
-        run: cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "${{ matrix.asset_name }}"
-      - name: Upload release asset
+      - name: Remove legacy raw asset on reruns
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" "./${{ matrix.asset_name }}" --repo "$GH_REPO" --clobber
+        run: |
+          gh release delete-asset "$RELEASE_TAG" "${{ matrix.legacy_asset_name }}" --repo "$GH_REPO" --yes || true
+      - name: Prepare archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist "${{ matrix.package_dir }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "${{ matrix.package_dir }}/${{ matrix.binary_name }}"
+          cp README.md "${{ matrix.package_dir }}/README.md"
+          tar -czf "dist/${{ matrix.archive_name }}" "${{ matrix.package_dir }}"
+          (
+            cd dist
+            shasum -a 256 "${{ matrix.archive_name }}" > "${{ matrix.checksum_name }}"
+          )
+      - name: Prepare archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          New-Item -ItemType Directory -Force -Path "${{ matrix.package_dir }}" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "${{ matrix.package_dir }}/${{ matrix.binary_name }}"
+          Copy-Item "README.md" "${{ matrix.package_dir }}/README.md"
+          Compress-Archive -Path "${{ matrix.package_dir }}" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
+          $hash = (Get-FileHash "dist/${{ matrix.archive_name }}" -Algorithm SHA256).Hash.ToLower()
+          Set-Content "dist/${{ matrix.checksum_name }}" "$hash  ${{ matrix.archive_name }}"
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "./dist/${{ matrix.archive_name }}" \
+            "./dist/${{ matrix.checksum_name }}" \
+            --repo "$GH_REPO" \
+            --clobber
