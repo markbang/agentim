@@ -13,6 +13,10 @@ pub struct Args {
     #[arg(long)]
     pub telegram_webhook_secret_token: Option<String>,
 
+    /// Use Telegram getUpdates long polling instead of waiting for Telegram webhook callbacks
+    #[arg(long, default_value_t = false)]
+    pub telegram_poll: bool,
+
     /// Discord bot token
     #[arg(long)]
     pub discord_token: Option<String>,

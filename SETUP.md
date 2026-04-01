@@ -5,11 +5,12 @@
 当前 `agentim` 二进制会：
 
 1. 选择一个默认 agent（`--agent`，生产模式建议 `openai` 或 `acp`；`claude` / `codex` / `pi` 仅用于开发和 dry-run）
-2. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
-3. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
-4. 注册你提供凭证的 IM channel
-5. 启动 webhook server
-6. 对收到的消息自动创建/复用 session，并把回复发回原平台
+2. Telegram 可选地改成 `--telegram-poll`，直接使用 `getUpdates` 长轮询而不是 webhook
+3. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
+4. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
+5. 注册你提供凭证的 IM channel
+6. 启动 webhook server 或 Telegram polling loop
+7. 对收到的消息自动创建/复用 session，并把回复发回原平台
 
 如果你需要更复杂的 workspace / 组织级策略路由，建议在库层基于 `AgentIM` 扩展。
 
@@ -23,10 +24,11 @@ cargo run -- \
   --openai-api-key "$OPENAI_API_KEY" \
   --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
   --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
-  --webhook-secret "change-me" \
   --telegram-token "$TELEGRAM_TOKEN" \
-  --addr 0.0.0.0:8080
+  --telegram-poll
 ```
+
+如果你确实要让 Telegram 走 webhook，再补上 `--webhook-secret` 或 `--telegram-webhook-secret-token`，并暴露 HTTP 地址。
 
 ### OpenAI-compatible backend
 
@@ -86,10 +88,10 @@ cargo run -- \
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
+export AGENTIM_TELEGRAM_POLL=1
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
 export OPENAI_API_KEY=your-api-key
-export AGENTIM_WEBHOOK_SECRET=change-me
 ./start.sh
 ```
 

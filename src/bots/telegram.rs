@@ -1,6 +1,6 @@
 use crate::channel::{Channel, ChannelMessage};
 use crate::config::ChannelType;
-use crate::error::Result;
+use crate::error::{AgentError, Result};
 use crate::manager::{AgentIM, MessageHandlingOptions};
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -25,6 +25,13 @@ pub struct TelegramMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramChat {
     pub id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct TelegramApiEnvelope<T> {
+    ok: bool,
+    result: Option<T>,
+    description: Option<String>,
 }
 
 pub struct TelegramBotChannel {
@@ -64,14 +71,65 @@ impl TelegramBotChannel {
             params["secret_token"] = serde_json::Value::String(secret_token.to_string());
         }
 
-        client
+        let response = client
             .post(&url)
             .json(&params)
             .send()
             .await
-            .map_err(|e| crate::error::AgentError::ChannelError(e.to_string()))?;
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
+        Self::ensure_api_ok(response).await?;
 
         Ok(())
+    }
+
+    pub async fn delete_webhook(&self, drop_pending_updates: bool) -> Result<()> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/deleteWebhook", self.api_url);
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "drop_pending_updates": drop_pending_updates
+            }))
+            .send()
+            .await
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
+        Self::ensure_api_ok(response).await?;
+        Ok(())
+    }
+
+    pub async fn get_updates(
+        &self,
+        offset: Option<i64>,
+        timeout_seconds: u64,
+        limit: usize,
+    ) -> Result<Vec<TelegramUpdate>> {
+        let client = reqwest::Client::new();
+        let url = format!("{}/getUpdates", self.api_url);
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "offset": offset,
+                "timeout": timeout_seconds,
+                "limit": limit,
+                "allowed_updates": ["message"]
+            }))
+            .send()
+            .await
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
+
+        let envelope: TelegramApiEnvelope<Vec<TelegramUpdate>> = response
+            .json()
+            .await
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
+        if envelope.ok {
+            Ok(envelope.result.unwrap_or_default())
+        } else {
+            Err(AgentError::ChannelError(
+                envelope
+                    .description
+                    .unwrap_or_else(|| "Telegram getUpdates failed".to_string()),
+            ))
+        }
     }
 
     pub fn get_pending_messages(&self, user_id: &str) -> Vec<String> {
@@ -86,6 +144,22 @@ impl TelegramBotChannel {
             .entry(user_id)
             .or_default()
             .push(message);
+    }
+
+    async fn ensure_api_ok(response: reqwest::Response) -> Result<()> {
+        let envelope: TelegramApiEnvelope<serde_json::Value> = response
+            .json()
+            .await
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
+        if envelope.ok {
+            Ok(())
+        } else {
+            Err(AgentError::ChannelError(
+                envelope
+                    .description
+                    .unwrap_or_else(|| "Telegram API call failed".to_string()),
+            ))
+        }
     }
 }
 
@@ -114,7 +188,9 @@ impl Channel for TelegramBotChannel {
             .json(&params)
             .send()
             .await
-            .map_err(|e| crate::error::AgentError::ChannelError(e.to_string()))?;
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?
+            .error_for_status()
+            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
 
         Ok(())
     }
@@ -127,9 +203,15 @@ impl Channel for TelegramBotChannel {
         let client = reqwest::Client::new();
         let url = format!("{}/getMe", self.api_url);
 
-        client.get(&url).send().await.map_err(|e| {
-            crate::error::AgentError::ChannelError(format!("Telegram health check failed: {}", e))
-        })?;
+        client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| AgentError::ChannelError(format!("Telegram health check failed: {}", e)))?
+            .error_for_status()
+            .map_err(|e| {
+                AgentError::ChannelError(format!("Telegram health check failed: {}", e))
+            })?;
 
         Ok(())
     }
@@ -164,4 +246,261 @@ pub async fn telegram_webhook_handler(
     }
 
     Ok(())
+}
+
+async fn persist_sessions(agentim: Arc<AgentIM>, path: String, backup_count: usize) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        agentim.save_sessions_to_path_with_rotation(&path, backup_count)
+    })
+    .await
+    .map_err(|e| AgentError::ChannelError(format!("Telegram persistence task failed: {}", e)))?
+}
+
+pub async fn run_telegram_poll_once(
+    agentim: Arc<AgentIM>,
+    channel: Arc<TelegramBotChannel>,
+    agent_id: &str,
+    options: MessageHandlingOptions,
+    next_offset: Option<i64>,
+    state_file: Option<&str>,
+    state_backup_count: usize,
+    timeout_seconds: u64,
+) -> Result<Option<i64>> {
+    let updates = channel
+        .get_updates(next_offset, timeout_seconds, 100)
+        .await?;
+    let mut next_offset = next_offset;
+
+    for update in updates {
+        next_offset = Some(update.update_id + 1);
+        if let Err(err) = telegram_webhook_handler(
+            agentim.clone(),
+            agent_id,
+            options.max_messages,
+            options.context_message_limit,
+            options.agent_timeout_ms,
+            update,
+        )
+        .await
+        {
+            tracing::error!(error = %err, "Telegram polling update failed");
+            continue;
+        }
+
+        if let Some(path) = state_file {
+            persist_sessions(agentim.clone(), path.to_string(), state_backup_count).await?;
+        }
+    }
+
+    Ok(next_offset)
+}
+
+pub async fn start_telegram_long_polling(
+    agentim: Arc<AgentIM>,
+    channel: Arc<TelegramBotChannel>,
+    agent_id: String,
+    options: MessageHandlingOptions,
+    state_file: Option<String>,
+    state_backup_count: usize,
+) -> Result<()> {
+    channel.delete_webhook(false).await?;
+
+    let mut next_offset = None;
+    loop {
+        next_offset = run_telegram_poll_once(
+            agentim.clone(),
+            channel.clone(),
+            &agent_id,
+            options,
+            next_offset,
+            state_file.as_deref(),
+            state_backup_count,
+            30,
+        )
+        .await?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::Agent;
+    use crate::config::AgentType;
+    use axum::{
+        extract::State,
+        routing::{get, post},
+        Json, Router,
+    };
+    use serde_json::Value;
+    use std::sync::Mutex;
+
+    struct EchoAgent;
+
+    #[async_trait]
+    impl Agent for EchoAgent {
+        fn agent_type(&self) -> AgentType {
+            AgentType::OpenAI
+        }
+
+        fn id(&self) -> &str {
+            "echo-agent"
+        }
+
+        async fn send_message(
+            &self,
+            _session: &mut crate::session::Session,
+            messages: Vec<crate::session::Message>,
+        ) -> Result<String> {
+            Ok(format!(
+                "echo:{}",
+                messages
+                    .last()
+                    .map(|message| message.content.clone())
+                    .unwrap_or_default()
+            ))
+        }
+
+        async fn health_check(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct TelegramMockState {
+        updates: Arc<Mutex<Vec<TelegramUpdate>>>,
+        sent_messages: Arc<Mutex<Vec<Value>>>,
+        delete_webhook_calls: Arc<Mutex<usize>>,
+    }
+
+    async fn telegram_mock_server(
+        state: TelegramMockState,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        let app = Router::new()
+            .route(
+                "/bot-test-token/getUpdates",
+                post(|State(state): State<TelegramMockState>| async move {
+                    let updates = state.updates.lock().unwrap().drain(..).collect::<Vec<_>>();
+                    Json(serde_json::json!({
+                        "ok": true,
+                        "result": updates,
+                    }))
+                }),
+            )
+            .route(
+                "/bot-test-token/sendMessage",
+                post(
+                    |State(state): State<TelegramMockState>, Json(body): Json<Value>| async move {
+                        state.sent_messages.lock().unwrap().push(body);
+                        Json(serde_json::json!({"ok": true, "result": true}))
+                    },
+                ),
+            )
+            .route(
+                "/bot-test-token/deleteWebhook",
+                post(|State(state): State<TelegramMockState>| async move {
+                    *state.delete_webhook_calls.lock().unwrap() += 1;
+                    Json(serde_json::json!({"ok": true, "result": true}))
+                }),
+            )
+            .route(
+                "/bot-test-token/getMe",
+                get(|| async { Json(serde_json::json!({"ok": true, "result": {"id": 1}})) }),
+            )
+            .with_state(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        (format!("http://{}/bot-test-token", addr), handle)
+    }
+
+    fn test_channel(api_url: String) -> TelegramBotChannel {
+        TelegramBotChannel {
+            id: TELEGRAM_CHANNEL_ID.to_string(),
+            token: "test-token".to_string(),
+            api_url,
+            pending_messages: Arc::new(DashMap::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn telegram_get_updates_parses_mock_response() {
+        let state = TelegramMockState::default();
+        state.updates.lock().unwrap().push(TelegramUpdate {
+            update_id: 42,
+            message: Some(TelegramMessage {
+                message_id: 7,
+                chat: TelegramChat { id: 123 },
+                text: Some("hello".to_string()),
+            }),
+        });
+        let (api_url, _handle) = telegram_mock_server(state).await;
+        let channel = test_channel(api_url);
+
+        let updates = channel.get_updates(None, 0, 100).await.unwrap();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].update_id, 42);
+        assert_eq!(
+            updates[0].message.as_ref().unwrap().text.as_deref(),
+            Some("hello")
+        );
+    }
+
+    #[tokio::test]
+    async fn telegram_poll_once_processes_updates_and_persists_sessions() {
+        let state = TelegramMockState::default();
+        state.updates.lock().unwrap().push(TelegramUpdate {
+            update_id: 99,
+            message: Some(TelegramMessage {
+                message_id: 11,
+                chat: TelegramChat { id: 321 },
+                text: Some("ping".to_string()),
+            }),
+        });
+        let (api_url, _handle) = telegram_mock_server(state.clone()).await;
+        let channel = Arc::new(test_channel(api_url));
+        let agentim = Arc::new(AgentIM::new());
+        agentim
+            .register_agent("default-agent".to_string(), Arc::new(EchoAgent))
+            .unwrap();
+        agentim
+            .register_channel(TELEGRAM_CHANNEL_ID.to_string(), channel.clone())
+            .unwrap();
+
+        let state_file = std::env::temp_dir()
+            .join(format!(
+                "agentim-telegram-poll-{}.json",
+                uuid::Uuid::new_v4()
+            ))
+            .display()
+            .to_string();
+        let next_offset = run_telegram_poll_once(
+            agentim.clone(),
+            channel.clone(),
+            "default-agent",
+            MessageHandlingOptions {
+                max_messages: None,
+                context_message_limit: 10,
+                agent_timeout_ms: Some(30_000),
+            },
+            None,
+            Some(&state_file),
+            1,
+            0,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(next_offset, Some(100));
+        assert_eq!(agentim.list_sessions().len(), 1);
+        assert_eq!(agentim.list_sessions()[0].messages.len(), 2);
+        assert_eq!(state.sent_messages.lock().unwrap().len(), 1);
+        assert!(std::path::Path::new(&state_file).exists());
+
+        let _ = std::fs::remove_file(&state_file);
+        let _ = std::fs::remove_file(format!("{}.bak.1", state_file));
+    }
 }

@@ -60,6 +60,7 @@ struct RuntimeConfig {
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
     telegram_webhook_secret_token: Option<String>,
+    telegram_poll: Option<bool>,
     discord_token: Option<String>,
     discord_interaction_public_key: Option<String>,
     feishu_token: Option<String>,
@@ -308,6 +309,7 @@ async fn main() -> anyhow::Result<()> {
         args.telegram_webhook_secret_token,
         runtime_config.telegram_webhook_secret_token,
     );
+    let telegram_poll = args.telegram_poll || runtime_config.telegram_poll.unwrap_or(false);
     let openai_api_key = merge_option(args.openai_api_key, runtime_config.openai_api_key);
     let openai_base_url = merge_option(args.openai_base_url, runtime_config.openai_base_url);
     let openai_model = merge_option(args.openai_model, runtime_config.openai_model);
@@ -523,6 +525,7 @@ async fn main() -> anyhow::Result<()> {
     let qq_enabled = qq_bot_id.is_some() || qq_bot_token.is_some() || qq_token.is_some();
     let slack_enabled = slack_token.is_some();
     let dingtalk_enabled = dingtalk_token.is_some();
+    let mut telegram_bot: Option<Arc<TelegramBotChannel>> = None;
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
@@ -531,6 +534,7 @@ async fn main() -> anyhow::Result<()> {
             token,
         ));
         agentim.register_channel(TELEGRAM_CHANNEL_ID.to_string(), tg_bot.clone())?;
+        telegram_bot = Some(tg_bot.clone());
 
         if args.dry_run {
             cli::print_info("Skipping Telegram health check in dry-run mode");
@@ -716,12 +720,23 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info("DingTalk webhook signature enabled");
     }
 
-    if !args.dry_run {
+    if telegram_poll {
+        cli::print_info("Telegram long polling enabled");
+    }
+
+    let start_webhook_server = (!telegram_poll && telegram_enabled)
+        || discord_enabled
+        || feishu_enabled
+        || qq_enabled
+        || slack_enabled
+        || dingtalk_enabled;
+
+    if !args.dry_run && start_webhook_server {
         let shared_webhook_protection_enabled =
             webhook_secret.is_some() || webhook_signing_secret.is_some();
         validate_production_runtime(
             &configured_agent_types,
-            telegram_enabled,
+            !telegram_poll && telegram_enabled,
             shared_webhook_protection_enabled || telegram_webhook_secret_token.is_some(),
             discord_enabled,
             shared_webhook_protection_enabled || discord_interaction_public_key.is_some(),
@@ -743,8 +758,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    cli::print_info(&format!("Starting Bot server on {}", addr));
-    cli::print_info("Waiting for incoming messages...");
+    let agentim = Arc::new(agentim);
 
     let server_config = BotServerConfig {
         telegram_agent_id,
@@ -769,7 +783,63 @@ async fn main() -> anyhow::Result<()> {
         dingtalk_secret,
     };
 
-    bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;
+    if telegram_poll && !telegram_enabled {
+        return Err(anyhow::anyhow!(
+            "--telegram-poll requires --telegram-token or telegram_token in the config file"
+        ));
+    }
+
+    let telegram_polling = if telegram_poll {
+        let telegram_bot = telegram_bot.clone().ok_or_else(|| {
+            anyhow::anyhow!("Telegram long polling requested but bot not initialized")
+        })?;
+        let agentim = agentim.clone();
+        let telegram_agent_id = server_config.telegram_agent_id.clone();
+        let state_file = server_config.state_file.clone();
+        Some(async move {
+            cli::print_info("Starting Telegram long polling");
+            bots::telegram::start_telegram_long_polling(
+                agentim,
+                telegram_bot,
+                telegram_agent_id,
+                manager::MessageHandlingOptions {
+                    max_messages: max_session_messages,
+                    context_message_limit,
+                    agent_timeout_ms,
+                },
+                state_file,
+                state_backup_count,
+            )
+            .await
+        })
+    } else {
+        None
+    };
+
+    match (start_webhook_server, telegram_polling) {
+        (true, Some(telegram_polling)) => {
+            cli::print_info(&format!("Starting Bot server on {}", addr));
+            cli::print_info("Waiting for incoming webhook and polling messages...");
+            tokio::select! {
+                result = bot_server::start_bot_server(agentim, server_config, &addr) => result?,
+                result = telegram_polling => result?,
+            }
+        }
+        (true, None) => {
+            cli::print_info(&format!("Starting Bot server on {}", addr));
+            cli::print_info("Waiting for incoming messages...");
+            bot_server::start_bot_server(agentim, server_config, &addr).await?;
+        }
+        (false, Some(telegram_polling)) => {
+            cli::print_info("Waiting for Telegram polling messages...");
+            telegram_polling.await?;
+        }
+        (false, None) => {
+            return Err(anyhow::anyhow!(
+                "no runtime ingress configured; enable at least one channel or --telegram-poll"
+            ));
+        }
+    }
 
     Ok(())
 }

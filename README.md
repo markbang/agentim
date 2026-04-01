@@ -53,6 +53,24 @@
 
 生产模式现在要求使用真实 agent backend：内置 `claude` / `codex` / `pi` 仅保留给开发和 dry-run，不允许在真实 bot-server 进程里启动。
 
+如果你的目标只是“本机跑一个 Telegram bridge bot”，现在最简单的是直接启用 long polling，不需要公网 webhook。
+
+### 0. 本机 Telegram Long Polling
+
+```bash
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --telegram-poll \
+  --state-file .agentim/sessions.json \
+  --state-backup-count 2
+```
+
+这个模式会在启动时自动关闭 Telegram webhook，然后用 `getUpdates` 长轮询拉消息，适合本机、内网、没有公网入口的场景。
+
 ### 1. 直接运行
 
 ```bash
@@ -106,6 +124,7 @@ cargo run -- \
 export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
+export AGENTIM_TELEGRAM_POLL=1
 export TELEGRAM_TOKEN=your-token
 export OPENAI_API_KEY=your-api-key
 export AGENTIM_WEBHOOK_SECRET=change-me
@@ -285,6 +304,7 @@ Expand-Archive .\agentim-windows-x86_64.zip -DestinationPath .
   "openai_base_url": "https://api.openai.com/v1",
   "openai_model": "gpt-4o-mini",
   "telegram_token": "your-telegram-token",
+  "telegram_poll": true,
   "slack_token": "xoxb-your-slack-token",
   "dingtalk_token": "your-dingtalk-token",
   "state_file": "/app/state/sessions.json",

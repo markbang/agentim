@@ -2137,7 +2137,14 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
 #[test]
 fn usability_reviewer_non_dry_run_rejects_stub_agents_for_production() {
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args(["--agent", "claude", "--webhook-secret", "secret"])
+        .args([
+            "--agent",
+            "claude",
+            "--telegram-token",
+            "dummy-telegram-token",
+            "--webhook-secret",
+            "secret",
+        ])
         .output()
         .unwrap();
 

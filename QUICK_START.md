@@ -4,6 +4,22 @@
 
 生产模式只支持真实 backend：`openai` 或 `acp`。内置 `claude` / `codex` / `pi` 仅用于开发和 dry-run。
 
+### 方式 0：本机 Telegram Long Polling
+
+```bash
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --telegram-poll \
+  --state-file .agentim/sessions.json \
+  --state-backup-count 2
+```
+
+这个模式不需要公网 URL，会自动切回 `getUpdates` 长轮询。
+
 ### 方式 1：直接运行
 
 ```bash
@@ -56,6 +72,7 @@ Server 启动后会监听：
 export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
+export AGENTIM_TELEGRAM_POLL=1
 export OPENAI_API_KEY=...
 export OPENAI_BASE_URL=https://api.openai.com/v1
 export OPENAI_MODEL=gpt-4o-mini
