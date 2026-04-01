@@ -1,0 +1,12 @@
+target/
+.git/
+.gitignore
+*.md
+*.log
+.env
+.env.*
+state/
+*.bak
+*.tmp
+.idea/
+.vscode/

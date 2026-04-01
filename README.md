@@ -26,6 +26,10 @@
 - Discord → `POST /discord`
 - Feishu / Lark → `POST /feishu`（支持 URL verification challenge）
 - QQ → `POST /qq`
+- Slack → `POST /slack`（支持 URL verification challenge）
+- DingTalk (钉钉) → `POST /dingtalk`
+- WeChat Work (企业微信) → `POST /wechatwork`
+- LINE → `POST /line`
 
 ### Review / Ops Endpoints
 - Health → `GET /healthz`
@@ -169,6 +173,13 @@ cargo run -- --dry-run --agent claude --telegram-agent pi
 --discord-token
 --feishu-app-id --feishu-app-secret
 --qq-bot-id --qq-bot-token
+--slack-token
+--slack-signing-secret
+--dingtalk-token
+--dingtalk-secret
+--wechatwork-corp-id --wechatwork-agent-id --wechatwork-secret
+--line-token
+--line-secret
 ```
 
 兼容旧格式：
@@ -179,6 +190,47 @@ cargo run -- --dry-run --agent claude --telegram-agent pi
 - `--telegram-webhook-secret-token`
 - `--discord-interaction-public-key`
 - `--feishu-verification-token`
+- `--slack-signing-secret`
+- `--dingtalk-secret`
+- `--line-secret`
+
+### 4. Docker 部署
+
+```bash
+# 构建镜像
+docker build -t agentim .
+
+# 使用环境变量运行
+docker run -d \
+  -p 8080:8080 \
+  -v $(pwd)/config:/app/config:ro \
+  -v $(pwd)/state:/app/state \
+  -e OPENAI_API_KEY=your-api-key \
+  -e TELEGRAM_TOKEN=your-token \
+  agentim
+
+# 或使用 docker-compose
+docker-compose up -d
+```
+
+### 5. 配置文件
+
+使用 JSON 配置文件可以管理更复杂的设置：
+
+```json
+{
+  "agent": "openai",
+  "openai_api_key": "your-api-key",
+  "openai_base_url": "https://api.openai.com/v1",
+  "openai_model": "gpt-4o-mini",
+  "telegram_token": "your-telegram-token",
+  "slack_token": "xoxb-your-slack-token",
+  "dingtalk_token": "your-dingtalk-token",
+  "state_file": "/app/state/sessions.json",
+  "context_message_limit": 20,
+  "agent_timeout_ms": 30000
+}
+```
 
 ## 消息桥接流程
 

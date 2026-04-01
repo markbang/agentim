@@ -15,6 +15,7 @@ pub enum AgentType {
     Codex,
     Pi,
     OpenAI,
+    Gemini,
 }
 
 impl std::fmt::Display for AgentType {
@@ -24,6 +25,7 @@ impl std::fmt::Display for AgentType {
             AgentType::Codex => write!(f, "codex"),
             AgentType::Pi => write!(f, "pi"),
             AgentType::OpenAI => write!(f, "openai"),
+            AgentType::Gemini => write!(f, "gemini"),
         }
     }
 }
@@ -40,6 +42,10 @@ pub enum ChannelType {
     Discord,
     Feishu,
     QQ,
+    Slack,
+    DingTalk,
+    WeChatWork,
+    Line,
 }
 
 impl std::fmt::Display for ChannelType {
@@ -49,6 +55,10 @@ impl std::fmt::Display for ChannelType {
             ChannelType::Discord => write!(f, "discord"),
             ChannelType::Feishu => write!(f, "feishu"),
             ChannelType::QQ => write!(f, "qq"),
+            ChannelType::Slack => write!(f, "slack"),
+            ChannelType::DingTalk => write!(f, "dingtalk"),
+            ChannelType::WeChatWork => write!(f, "wechatwork"),
+            ChannelType::Line => write!(f, "line"),
         }
     }
 }
