@@ -63,6 +63,7 @@ struct RuntimeConfig {
     telegram_poll: Option<bool>,
     discord_token: Option<String>,
     discord_interaction_public_key: Option<String>,
+    discord_gateway: Option<bool>,
     feishu_token: Option<String>,
     feishu_app_id: Option<String>,
     feishu_app_secret: Option<String>,
@@ -333,6 +334,7 @@ async fn main() -> anyhow::Result<()> {
         args.discord_interaction_public_key,
         runtime_config.discord_interaction_public_key,
     );
+    let discord_gateway = args.discord_gateway || runtime_config.discord_gateway.unwrap_or(false);
     let feishu_token = merge_option(args.feishu_token, runtime_config.feishu_token);
     let feishu_app_id = merge_option(args.feishu_app_id, runtime_config.feishu_app_id);
     let feishu_app_secret = merge_option(args.feishu_app_secret, runtime_config.feishu_app_secret);
@@ -526,6 +528,7 @@ async fn main() -> anyhow::Result<()> {
     let slack_enabled = slack_token.is_some();
     let dingtalk_enabled = dingtalk_token.is_some();
     let mut telegram_bot: Option<Arc<TelegramBotChannel>> = None;
+    let mut discord_bot: Option<Arc<DiscordBotChannel>> = None;
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
@@ -548,16 +551,17 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = discord_token {
         cli::print_info("Initializing Discord Bot...");
-        let discord_bot = Arc::new(DiscordBotChannel::new(
+        let discord_channel = Arc::new(DiscordBotChannel::new(
             DISCORD_CHANNEL_ID.to_string(),
             token,
         ));
-        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot.clone())?;
+        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_channel.clone())?;
+        discord_bot = Some(discord_channel.clone());
 
         if args.dry_run {
             cli::print_info("Skipping Discord health check in dry-run mode");
         } else {
-            match Channel::health_check(discord_bot.as_ref()).await {
+            match Channel::health_check(discord_channel.as_ref()).await {
                 Ok(_) => cli::print_success("Discord Bot connected"),
                 Err(e) => cli::print_error(&format!("Discord Bot connection failed: {}", e)),
             }
@@ -723,9 +727,12 @@ async fn main() -> anyhow::Result<()> {
     if telegram_poll {
         cli::print_info("Telegram long polling enabled");
     }
+    if discord_gateway {
+        cli::print_info("Discord gateway mode enabled");
+    }
 
     let start_webhook_server = (!telegram_poll && telegram_enabled)
-        || discord_enabled
+        || (!discord_gateway && discord_enabled)
         || feishu_enabled
         || qq_enabled
         || slack_enabled
@@ -738,7 +745,7 @@ async fn main() -> anyhow::Result<()> {
             &configured_agent_types,
             !telegram_poll && telegram_enabled,
             shared_webhook_protection_enabled || telegram_webhook_secret_token.is_some(),
-            discord_enabled,
+            !discord_gateway && discord_enabled,
             shared_webhook_protection_enabled || discord_interaction_public_key.is_some(),
             feishu_enabled,
             shared_webhook_protection_enabled || feishu_verification_token.is_some(),
@@ -788,15 +795,23 @@ async fn main() -> anyhow::Result<()> {
             "--telegram-poll requires --telegram-token or telegram_token in the config file"
         ));
     }
+    if discord_gateway && !discord_enabled {
+        return Err(anyhow::anyhow!(
+            "--discord-gateway requires --discord-token or discord_token in the config file"
+        ));
+    }
 
-    let telegram_polling = if telegram_poll {
+    let mut ingress_tasks = tokio::task::JoinSet::new();
+    let mut has_background_ingress = false;
+
+    if telegram_poll {
         let telegram_bot = telegram_bot.clone().ok_or_else(|| {
             anyhow::anyhow!("Telegram long polling requested but bot not initialized")
         })?;
         let agentim = agentim.clone();
         let telegram_agent_id = server_config.telegram_agent_id.clone();
         let state_file = server_config.state_file.clone();
-        Some(async move {
+        ingress_tasks.spawn(async move {
             cli::print_info("Starting Telegram long polling");
             bots::telegram::start_telegram_long_polling(
                 agentim,
@@ -811,32 +826,69 @@ async fn main() -> anyhow::Result<()> {
                 state_backup_count,
             )
             .await
-        })
-    } else {
-        None
-    };
+            .map_err(anyhow::Error::from)
+        });
+        has_background_ingress = true;
+    }
 
-    match (start_webhook_server, telegram_polling) {
-        (true, Some(telegram_polling)) => {
+    if discord_gateway {
+        let discord_bot = discord_bot
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Discord gateway requested but bot not initialized"))?;
+        let agentim = agentim.clone();
+        let discord_agent_id = server_config.discord_agent_id.clone();
+        let state_file = server_config.state_file.clone();
+        ingress_tasks.spawn(async move {
+            cli::print_info("Starting Discord gateway");
+            bots::discord::start_discord_gateway(
+                agentim,
+                discord_bot,
+                discord_agent_id,
+                manager::MessageHandlingOptions {
+                    max_messages: max_session_messages,
+                    context_message_limit,
+                    agent_timeout_ms,
+                },
+                state_file,
+                state_backup_count,
+            )
+            .await
+            .map_err(anyhow::Error::from)
+        });
+        has_background_ingress = true;
+    }
+
+    match (start_webhook_server, has_background_ingress) {
+        (true, true) => {
             cli::print_info(&format!("Starting Bot server on {}", addr));
-            cli::print_info("Waiting for incoming webhook and polling messages...");
+            cli::print_info("Waiting for webhook, polling, and gateway messages...");
             tokio::select! {
                 result = bot_server::start_bot_server(agentim, server_config, &addr) => result?,
-                result = telegram_polling => result?,
+                task = ingress_tasks.join_next() => match task {
+                    Some(Ok(Ok(()))) => {}
+                    Some(Ok(Err(err))) => return Err(err),
+                    Some(Err(err)) => return Err(err.into()),
+                    None => {}
+                }
             }
         }
-        (true, None) => {
+        (true, false) => {
             cli::print_info(&format!("Starting Bot server on {}", addr));
             cli::print_info("Waiting for incoming messages...");
             bot_server::start_bot_server(agentim, server_config, &addr).await?;
         }
-        (false, Some(telegram_polling)) => {
-            cli::print_info("Waiting for Telegram polling messages...");
-            telegram_polling.await?;
+        (false, true) => {
+            cli::print_info("Waiting for polling and gateway messages...");
+            match ingress_tasks.join_next().await {
+                Some(Ok(Ok(()))) => {}
+                Some(Ok(Err(err))) => return Err(err),
+                Some(Err(err)) => return Err(err.into()),
+                None => {}
+            }
         }
-        (false, None) => {
+        (false, false) => {
             return Err(anyhow::anyhow!(
-                "no runtime ingress configured; enable at least one channel or --telegram-poll"
+                "no runtime ingress configured; enable at least one channel, --telegram-poll, or --discord-gateway"
             ));
         }
     }

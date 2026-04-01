@@ -89,11 +89,15 @@ cargo run -- \
 export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
 export AGENTIM_TELEGRAM_POLL=1
+export AGENTIM_DISCORD_GATEWAY=1
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
+export DISCORD_TOKEN=your-discord-token
 export OPENAI_API_KEY=your-api-key
 ./start.sh
 ```
+
+本地只跑 Telegram / Discord bot bridge 时，可以只开 `AGENTIM_TELEGRAM_POLL=1` 或 `AGENTIM_DISCORD_GATEWAY=1`，不需要先准备公网 webhook。
 
 ### Dry-run
 
@@ -108,6 +112,8 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_CONFIG_FILE`
 - `AGENTIM_AGENT`
 - `AGENTIM_ADDR`
+- `AGENTIM_TELEGRAM_POLL`
+- `AGENTIM_DISCORD_GATEWAY`
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
@@ -128,6 +134,7 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `FEISHU_AGENT`
 - `QQ_AGENT`
 - `TELEGRAM_TOKEN`
+- `DISCORD_TOKEN`
 - `DISCORD_TOKEN`
 - `FEISHU_APP_ID`
 - `FEISHU_APP_SECRET`

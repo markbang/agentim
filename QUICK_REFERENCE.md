@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-AgentIM 是一个用 Rust 编写的多平台 AI bridge：把 Telegram、Discord、Feishu、QQ 的 webhook 消息统一接入到 agent 层，并负责 session、路由、上下文裁剪、回发目标与可选持久化。
+AgentIM 是一个用 Rust 编写的多平台 AI bridge：把 Telegram、Discord、Feishu、QQ 的 webhook 消息统一接入到 agent 层，也支持 Telegram long polling 和 Discord Gateway，本地就能直接跑 bot bridge，并负责 session、路由、上下文裁剪、回发目标与可选持久化。
 
 当前仓库提供两层能力：
 
@@ -25,8 +25,12 @@ AGENTIM_DRY_RUN=1 ./setup.sh
 
 # 运行主服务
 cargo run -- \
-  --agent claude \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
   --telegram-token "$TELEGRAM_TOKEN" \
+  --telegram-poll \
+  --discord-token "$DISCORD_TOKEN" \
+  --discord-gateway \
   --addr 127.0.0.1:8080
 
 # 回归测试
@@ -41,10 +45,10 @@ cargo test --test review_bridge
 - `start.sh`：推荐入口，读取环境变量并自动构建过期的 release 二进制
 - `setup.sh`：兼容包装器，会加载 `.env`、兼容旧环境变量名，并委托到 `start.sh`
 
-## 关键路由
+## 关键入口
 
-- `POST /telegram`
-- `POST /discord`
+- Telegram: `POST /telegram` 或 `--telegram-poll`
+- Discord: `POST /discord` 或 `--discord-gateway`
 - `POST /feishu`
 - `POST /qq`
 - `GET /healthz`
@@ -53,6 +57,7 @@ cargo test --test review_bridge
 ## 关键参数
 
 - Agent 选择：`--agent`、`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`
+- 本地接入：`--telegram-poll`、`--discord-gateway`
 - OpenAI backend：`--openai-api-key`、`--openai-base-url`、`--openai-model`、`--openai-max-retries`
 - Session 控制：`--state-file`、`--state-backup-count`、`--max-session-messages`、`--context-message-limit`、`--agent-timeout-ms`
 - 安全控制：`--webhook-secret`、`--webhook-signing-secret`、`--webhook-max-skew-seconds`

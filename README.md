@@ -5,7 +5,7 @@
 当前仓库有两层能力：
 
 1. **库能力**：`AgentIM` 提供 agent/channel/session 抽象，适合二次开发。
-2. **可运行二进制**：`agentim` 启动一个 webhook server，把收到的 IM 消息转给一个默认 agent，再把回复发回对应平台。
+2. **可运行二进制**：`agentim` 可以启动 webhook server，也可以直接用 Telegram long polling / Discord Gateway 在本地收消息，再把回复发回对应平台。
 
 > 当前二进制会注册一个默认 agent，并支持两级路由：
 > 1. 按平台覆盖：`--telegram-agent`、`--discord-agent`、`--feishu-agent`、`--qq-agent`
@@ -21,9 +21,9 @@
 - Pi（本地模拟）
 - OpenAI-compatible HTTP backend（真实 `/chat/completions` 适配）
 
-### IM Channels / Webhook Routes
-- Telegram → `POST /telegram`
-- Discord → `POST /discord`
+### IM Channels / Ingress Modes
+- Telegram → `POST /telegram` 或 `getUpdates` long polling
+- Discord → `POST /discord` 或 Gateway websocket
 - Feishu / Lark → `POST /feishu`（支持 URL verification challenge）
 - QQ → `POST /qq`
 - Slack → `POST /slack`（支持 URL verification challenge）
@@ -125,9 +125,10 @@ export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_TELEGRAM_POLL=1
+export AGENTIM_DISCORD_GATEWAY=1
 export TELEGRAM_TOKEN=your-token
+export DISCORD_TOKEN=your-discord-token
 export OPENAI_API_KEY=your-api-key
-export AGENTIM_WEBHOOK_SECRET=change-me
 ./start.sh
 
 # 可选
@@ -135,6 +136,8 @@ export AGENTIM_WEBHOOK_SECRET=change-me
 # export OPENAI_MODEL=gpt-4o-mini
 # export OPENAI_MAX_RETRIES=1
 ```
+
+如果你只是在本地主机上跑 bot bridge，启用 `AGENTIM_TELEGRAM_POLL=1` 或 `AGENTIM_DISCORD_GATEWAY=1` 就不需要先把 Telegram / Discord 暴露成公网 webhook。
 
 如果希望 session 在重启后恢复，并分别控制“保存多少历史”“每次送进 agent 多少上下文”以及“agent 最多跑多久”，可以再加：
 
@@ -305,6 +308,8 @@ Expand-Archive .\agentim-windows-x86_64.zip -DestinationPath .
   "openai_model": "gpt-4o-mini",
   "telegram_token": "your-telegram-token",
   "telegram_poll": true,
+  "discord_token": "your-discord-token",
+  "discord_gateway": true,
   "slack_token": "xoxb-your-slack-token",
   "dingtalk_token": "your-dingtalk-token",
   "state_file": "/app/state/sessions.json",

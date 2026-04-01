@@ -66,6 +66,8 @@ Server 启动后会监听：
 - `POST /feishu`
 - `POST /qq`
 
+如果启用了 `--telegram-poll` 或 `--discord-gateway`，对应平台不需要公网 webhook。
+
 ### 方式 2：用 `start.sh`
 
 ```bash
@@ -73,6 +75,7 @@ export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_TELEGRAM_POLL=1
+export AGENTIM_DISCORD_GATEWAY=1
 export OPENAI_API_KEY=...
 export OPENAI_BASE_URL=https://api.openai.com/v1
 export OPENAI_MODEL=gpt-4o-mini
@@ -89,8 +92,11 @@ export TELEGRAM_WEBHOOK_SECRET_TOKEN=tg-native-secret
 export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
 export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
 export TELEGRAM_TOKEN=your-token
+export DISCORD_TOKEN=your-discord-token
 ./start.sh
 ```
+
+只想在本机打通 Telegram / Discord bot 时，保留 `AGENTIM_TELEGRAM_POLL=1` / `AGENTIM_DISCORD_GATEWAY=1` 即可；上面的 webhook 鉴权变量只在你对外暴露 HTTP 路由时才需要。
 
 如果你要把某个用户路由到特殊 agent，在 `agentim.json` 里加：
 

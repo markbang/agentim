@@ -13,6 +13,7 @@ args=()
 
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
 [[ "${AGENTIM_TELEGRAM_POLL:-0}" == "1" ]] && args+=(--telegram-poll)
+[[ "${AGENTIM_DISCORD_GATEWAY:-0}" == "1" ]] && args+=(--discord-gateway)
 [[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
@@ -75,6 +76,7 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ "${AGENTIM_TELEGRAM_POLL:-0}" == "1" ]] && echo "Telegram long polling: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
+[[ "${AGENTIM_DISCORD_GATEWAY:-0}" == "1" ]] && echo "Discord gateway: enabled"
 [[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]] && echo "Discord native signature: enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"

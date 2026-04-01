@@ -1,7 +1,7 @@
 {
-  "agent": "claude",
-  "telegram_agent": "pi",
-  "discord_agent": "codex",
+  "agent": "openai",
+  "telegram_agent": "openai",
+  "discord_agent": "openai",
   "openai_api_key": "YOUR_OPENAI_API_KEY",
   "openai_base_url": "https://api.openai.com/v1",
   "openai_model": "gpt-4o-mini",
@@ -11,13 +11,13 @@
       "channel": "telegram",
       "user_id": "vip-user",
       "priority": 10,
-      "agent": "claude"
+      "agent": "openai"
     },
     {
       "channel": "discord",
       "reply_target_prefix": "review-",
       "priority": 1,
-      "agent": "pi"
+      "agent": "openai"
     }
   ],
   "telegram_token": "YOUR_TELEGRAM_TOKEN",
@@ -25,6 +25,7 @@
   "telegram_webhook_secret_token": "YOUR_TELEGRAM_WEBHOOK_SECRET_TOKEN",
   "feishu_verification_token": "YOUR_FEISHU_WEBHOOK_VERIFICATION_TOKEN",
   "discord_token": "YOUR_DISCORD_TOKEN",
+  "discord_gateway": true,
   "discord_interaction_public_key": "YOUR_DISCORD_INTERACTION_PUBLIC_KEY",
   "feishu_app_id": "YOUR_FEISHU_APP_ID",
   "feishu_app_secret": "YOUR_FEISHU_APP_SECRET",

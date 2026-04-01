@@ -25,6 +25,10 @@ pub struct Args {
     #[arg(long)]
     pub discord_interaction_public_key: Option<String>,
 
+    /// Use the Discord Gateway instead of waiting for Discord webhook callbacks
+    #[arg(long, default_value_t = false)]
+    pub discord_gateway: bool,
+
     /// Deprecated fallback: Feishu credentials as "app_id:app_secret"
     #[arg(long)]
     pub feishu_token: Option<String>,
