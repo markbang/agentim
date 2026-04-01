@@ -141,6 +141,65 @@ fn resolve_absolute_path(path: Option<String>) -> anyhow::Result<PathBuf> {
     }
 }
 
+fn is_stub_agent_type(agent_type: &str) -> bool {
+    matches!(agent_type, "claude" | "codex" | "pi")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_production_runtime(
+    configured_agent_types: &[String],
+    telegram_enabled: bool,
+    telegram_protected: bool,
+    discord_enabled: bool,
+    discord_protected: bool,
+    feishu_enabled: bool,
+    feishu_protected: bool,
+    qq_enabled: bool,
+    qq_protected: bool,
+    slack_enabled: bool,
+    slack_protected: bool,
+    dingtalk_enabled: bool,
+    dingtalk_protected: bool,
+    webhook_signing_secret_enabled: bool,
+    webhook_max_skew_seconds: i64,
+) -> anyhow::Result<()> {
+    let stub_agents = configured_agent_types
+        .iter()
+        .filter(|agent_type| is_stub_agent_type(agent_type))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if !stub_agents.is_empty() {
+        return Err(anyhow::anyhow!(
+            "production bot server cannot use stub agents ({}) ; use 'openai' or 'acp' instead",
+            stub_agents.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+
+    if webhook_signing_secret_enabled && webhook_max_skew_seconds <= 0 {
+        return Err(anyhow::anyhow!(
+            "--webhook-max-skew-seconds must be greater than 0 when signed webhook verification is enabled"
+        ));
+    }
+
+    for (channel, enabled, protected) in [
+        ("Telegram", telegram_enabled, telegram_protected),
+        ("Discord", discord_enabled, discord_protected),
+        ("Feishu", feishu_enabled, feishu_protected),
+        ("QQ", qq_enabled, qq_protected),
+        ("Slack", slack_enabled, slack_protected),
+        ("DingTalk", dingtalk_enabled, dingtalk_protected),
+    ] {
+        if enabled && !protected {
+            return Err(anyhow::anyhow!(
+                "{} webhook ingress is enabled without request authentication",
+                channel
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
     openai_api_key: Option<String>,
@@ -301,7 +360,11 @@ async fn main() -> anyhow::Result<()> {
         .context_message_limit
         .or(runtime_config.context_message_limit)
         .unwrap_or(10);
-    let agent_timeout_ms = args.agent_timeout_ms.or(runtime_config.agent_timeout_ms);
+    let agent_timeout_ms = Some(
+        args.agent_timeout_ms
+            .or(runtime_config.agent_timeout_ms)
+            .unwrap_or(30_000),
+    );
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let webhook_signing_secret = merge_option(
         args.webhook_signing_secret,
@@ -324,6 +387,27 @@ async fn main() -> anyhow::Result<()> {
         acp_cwd,
         acp_env,
     };
+
+    let mut configured_agent_types = vec![default_agent_type.clone()];
+    configured_agent_types.extend(
+        [
+            telegram_agent.as_ref(),
+            discord_agent.as_ref(),
+            feishu_agent.as_ref(),
+            qq_agent.as_ref(),
+            slack_agent.as_ref(),
+            dingtalk_agent.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .cloned(),
+    );
+    configured_agent_types.extend(
+        runtime_config
+            .routing_rules
+            .iter()
+            .map(|rule| rule.agent.clone()),
+    );
 
     register_agent_variant(
         &agentim,
@@ -431,6 +515,14 @@ async fn main() -> anyhow::Result<()> {
     if !routing_rules.is_empty() {
         cli::print_info(&format!("Loaded {} routing rule(s)", routing_rules.len()));
     }
+
+    let telegram_enabled = telegram_token.is_some();
+    let discord_enabled = discord_token.is_some();
+    let feishu_enabled =
+        feishu_app_id.is_some() || feishu_app_secret.is_some() || feishu_token.is_some();
+    let qq_enabled = qq_bot_id.is_some() || qq_bot_token.is_some() || qq_token.is_some();
+    let slack_enabled = slack_token.is_some();
+    let dingtalk_enabled = dingtalk_token.is_some();
 
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
@@ -622,6 +714,28 @@ async fn main() -> anyhow::Result<()> {
     }
     if dingtalk_secret.is_some() {
         cli::print_info("DingTalk webhook signature enabled");
+    }
+
+    if !args.dry_run {
+        let shared_webhook_protection_enabled =
+            webhook_secret.is_some() || webhook_signing_secret.is_some();
+        validate_production_runtime(
+            &configured_agent_types,
+            telegram_enabled,
+            shared_webhook_protection_enabled || telegram_webhook_secret_token.is_some(),
+            discord_enabled,
+            shared_webhook_protection_enabled || discord_interaction_public_key.is_some(),
+            feishu_enabled,
+            shared_webhook_protection_enabled || feishu_verification_token.is_some(),
+            qq_enabled,
+            shared_webhook_protection_enabled,
+            slack_enabled,
+            shared_webhook_protection_enabled || slack_signing_secret.is_some(),
+            dingtalk_enabled,
+            shared_webhook_protection_enabled,
+            webhook_signing_secret.is_some(),
+            webhook_max_skew_seconds,
+        )?;
     }
 
     if args.dry_run {

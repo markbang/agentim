@@ -1,306 +1,72 @@
-# AgentIM - 生产就绪的多渠道AI Agent管理系统
+# AgentIM Production Readiness
 
-## 项目完成状态 ✅
+## 当前结论
 
-AgentIM现已完全实现并可投入生产使用。系统支持真实的IM平台集成，通过Bot API接收消息并自动路由到AI Agent处理。
+当前主干已经达到“可作为单实例 webhook bridge 投入生产”的基线，但前提很明确：
 
-## 核心功能
+- 真实流量必须使用 `openai` 或 `acp` agent
+- webhook 入口必须至少启用一层鉴权
+- 当前定位是单实例进程 + 本地快照持久化，不是分布式控制面
 
-### 1. 多Agent支持 ✅
-- **Claude**: 通过Anthropic API
-- **Codex**: 通过OpenAI API
-- **Pi**: 通过Pi API
-- 易于扩展新的Agent类型
+内置 `claude` / `codex` / `pi` 仍然是开发 stub，只用于 dry-run 和本地验证；生产 bot-server 进程会直接拒绝这些配置。
 
-### 2. 多Channel支持 ✅
-- **Telegram**: 真实Bot API集成
-- **Discord**: 真实API集成
-- **Feishu (飞书)**: 真实Open API集成
-- **QQ**: 真实Bot API集成
+## 已落地的生产保障
 
-### 3. 完整的消息管道 ✅
-```
-用户消息 (IM平台)
-    ↓
-Webhook接收
-    ↓
-查找对应Session
-    ↓
-发送给Agent处理
-    ↓
-Agent生成响应
-    ↓
-通过IM API发送回用户
-    ↓
-用户收到响应
-```
+- 同一 `(agent, channel, user)` 的 session 现在通过原子索引复用，不会并发重复建会话
+- 同一 session 的消息处理已经串行化，避免并发覆盖历史或丢回复
+- webhook 支持共享密钥、全局 HMAC 签名、防 replay，以及 Telegram / Discord / Feishu / Slack 的平台原生校验
+- Slack 在配置签名密钥后，缺失签名头会直接拒绝，不再默许漏 header
+- agent 调用默认有 `30000ms` 超时，避免 webhook 长时间悬挂
+- 请求体默认限制为 `256 KiB`
+- session 快照改为后台异步落盘，不再在 webhook 请求路径里直接做同步 IO
+- 状态文件支持 `.bak.N` 轮转，并可在主文件损坏时从最近有效备份恢复
 
-### 4. 会话管理 ✅
-- 每个用户-Agent-Channel组合维护独立会话
-- 自动消息历史追踪
-- 上下文窗口管理
-- 元数据支持
+## 仍然成立的边界
 
-### 5. 交互式设置 ✅
-- 菜单驱动的Agent注册
-- 菜单驱动的Channel注册
-- Session创建和管理
-- 实时消息测试
+- 目前是单实例内存态 session 管理；如果要多实例部署，需要把 session / routing / replay cache 外置
+- 当前默认持久化仍是本地 JSON 快照；如果要更强 durability，建议换数据库或对象存储
+- 监控和指标还没有 Prometheus 级别的集成，现阶段主要依赖日志和 `/healthz`、`/reviewz`
+- TLS 终止仍建议放在反向代理或 LB 前面
 
-### 6. 配置持久化 ✅
-- JSON配置文件支持
-- 自动加载和恢复
-- 启动脚本自动化
-
-## 快速开始
-
-### 方式1: 交互式模式（推荐）
+## 建议的生产启动方式
 
 ```bash
-cargo build --release
-./target/release/agentim interactive
+cargo run -- \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --openai-max-retries 1 \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --webhook-secret "change-me" \
+  --state-file .agentim/sessions.json \
+  --state-backup-count 2 \
+  --addr 127.0.0.1:8080
 ```
 
-### 方式2: Bot服务器模式（生产环境）
+如果要接 ACP：
 
 ```bash
-# 启动Telegram Bot服务器
-./target/release/agentim bot-server --telegram-token "YOUR_BOT_TOKEN"
-
-# 或指定自定义地址
-./target/release/agentim bot-server --telegram-token "YOUR_BOT_TOKEN" --addr "0.0.0.0:8080"
+cargo run -- \
+  --agent acp \
+  --acp-command /path/to/acp-agent \
+  --telegram-token "$TELEGRAM_TOKEN" \
+  --webhook-signing-secret "change-me-signing" \
+  --state-file .agentim/sessions.json
 ```
 
-### 方式3: 配置文件模式
+## 上线前检查
 
-```bash
-cp agentim.json.example agentim.json
-# 编辑agentim.json
-./start.sh
-```
+- `cargo test`
+- `cargo run -- --dry-run ...`
+- 确认至少一层 webhook 鉴权已开启
+- 确认使用的是 `openai` 或 `acp`
+- 确认 `state_file` 和备份目录可写
+- 确认反向代理/LB 已启用 HTTPS
 
-## 完整的CLI命令
+## 下一阶段增强
 
-### Agent管理
-```bash
-agentim agent list                                    # 列出所有Agent
-agentim agent register --id claude-1 --agent-type claude  # 注册Agent
-agentim agent health --id claude-1                   # 健康检查
-```
-
-### Channel管理
-```bash
-agentim channel list                                  # 列出所有Channel
-agentim channel register --id tg-1 --channel-type telegram  # 注册Channel
-agentim channel health --id tg-1                     # 健康检查
-```
-
-### Session管理
-```bash
-agentim session list                                  # 列出所有Session
-agentim session create --agent-id claude-1 --channel-id tg-1 --user-id user123
-agentim session send --session-id <id> --message "Hello"
-agentim session get --id <id>
-agentim session delete --id <id>
-```
-
-### 系统管理
-```bash
-agentim status                                        # 系统状态
-agentim interactive                                  # 交互模式
-agentim bot-server --telegram-token "TOKEN"         # Bot服务器
-```
-
-## 架构设计
-
-### 核心模块
-
-| 模块 | 功能 |
-|------|------|
-| `agent.rs` | Agent trait和实现 |
-| `channel.rs` | Channel trait和实现 |
-| `session.rs` | Session和消息管理 |
-| `manager.rs` | AgentIM核心编排器 |
-| `bots/` | 真实Bot集成 |
-| `bot_server.rs` | Webhook服务器 |
-| `interactive.rs` | 交互式CLI |
-| `persistence.rs` | 配置持久化 |
-
-### 并发设计
-- 使用DashMap实现无锁并发
-- Arc<dyn Trait>用于共享所有权
-- 支持数千个并发会话
-- 异步优先（Tokio）
-
-## 生产部署
-
-### 使用Systemd
-
-```ini
-[Unit]
-Description=AgentIM Bot Server
-After=network.target
-
-[Service]
-Type=simple
-User=agentim
-ExecStart=/opt/agentim/target/release/agentim bot-server \
-  --telegram-token "YOUR_BOT_TOKEN" \
-  --addr "127.0.0.1:8080"
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 使用Docker
-
-```dockerfile
-FROM rust:latest
-WORKDIR /app
-COPY . .
-RUN cargo build --release
-EXPOSE 8080
-CMD ["./target/release/agentim", "bot-server", "--telegram-token", "${TELEGRAM_TOKEN}", "--addr", "0.0.0.0:8080"]
-```
-
-### 使用Nginx反向代理
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-## 文档
-
-- **README.md** - 项目概述
-- **SETUP.md** - 详细设置指南
-- **BOT_INTEGRATION.md** - Bot集成指南
-- **QUICK_START.md** - 快速参考
-- **ARCHITECTURE.md** - 架构设计
-- **CLI_GUIDE.md** - CLI参考
-
-## 性能特性
-
-- **并发会话**: 数千个
-- **消息延迟**: <100ms（不含网络）
-- **内存占用**: 每个会话~1KB（不含历史）
-- **吞吐量**: 每秒数千条消息
-
-## 安全特性
-
-✅ HTTPS Webhook支持
-✅ 请求签名验证
-✅ Session隔离
-✅ 错误消息清理
-✅ 可扩展的权限控制
-
-## 已实现的功能
-
-### Phase 1: 核心框架 ✅
-- [x] Agent trait和实现
-- [x] Channel trait和实现
-- [x] Session管理
-- [x] 消息历史追踪
-
-### Phase 2: 消息管道 ✅
-- [x] 用户消息→Agent处理
-- [x] Agent响应→Channel发送
-- [x] 完整的端到端流程
-
-### Phase 3: 交互式设置 ✅
-- [x] 菜单驱动的Agent注册
-- [x] 菜单驱动的Channel注册
-- [x] Session创建和管理
-- [x] 实时消息测试
-
-### Phase 4: 配置持久化 ✅
-- [x] JSON配置文件
-- [x] 自动加载和恢复
-- [x] 启动脚本
-
-### Phase 5: 真实Bot集成 ✅
-- [x] Telegram Bot API
-- [x] Discord API
-- [x] Feishu Open API
-- [x] QQ Bot API
-- [x] Webhook服务器
-- [x] 自动消息路由
-
-## 使用示例
-
-### Telegram Bot示例
-
-```bash
-# 1. 创建Bot并获得Token
-# 通过 @BotFather 创建
-
-# 2. 启动AgentIM
-./target/release/agentim bot-server --telegram-token "YOUR_BOT_TOKEN"
-
-# 3. 设置Webhook
-curl -X POST https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://your-domain.com/telegram"}'
-
-# 4. 创建Session
-./target/release/agentim agent register --id claude-1 --agent-type claude
-./target/release/agentim channel register --id tg-bot --channel-type telegram
-./target/release/agentim session create \
-  --agent-id claude-1 \
-  --channel-id tg-bot \
-  --user-id "YOUR_CHAT_ID"
-
-# 5. 在Telegram中给Bot发送消息
-# 消息将自动被处理并返回响应
-```
-
-## 下一步（可选增强）
-
-1. **数据库持久化** - 使用PostgreSQL/MongoDB存储会话
-2. **消息队列** - 使用Redis/RabbitMQ提高吞吐量
-3. **Web API** - 添加REST API用于远程管理
-4. **监控和指标** - Prometheus/Grafana集成
-5. **分布式部署** - 支持多实例部署
-6. **高级路由** - 基于规则的消息路由
-7. **用户认证** - OAuth/JWT支持
-
-## 项目统计
-
-- **代码行数**: ~3000+
-- **模块数**: 10+
-- **支持的平台**: 4 (Telegram, Discord, Feishu, QQ)
-- **支持的Agent**: 3 (Claude, Codex, Pi)
-- **并发能力**: 数千个会话
-
-## 许可证
-
-MIT
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
----
-
-**AgentIM已准备好投入生产使用！** 🚀
-
-通过简单的命令即可启动：
-```bash
-./target/release/agentim bot-server --telegram-token "YOUR_BOT_TOKEN"
-```
-
-或使用交互模式：
-```bash
-./target/release/agentim interactive
-```
+- 外部 session 存储和多实例协调
+- Prometheus / OpenTelemetry 指标
+- 更细粒度的限流和 backpressure
+- 优雅停机时的最终 flush / drain

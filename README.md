@@ -51,11 +51,17 @@
 
 ## 快速开始
 
+生产模式现在要求使用真实 agent backend：内置 `claude` / `codex` / `pi` 仅保留给开发和 dry-run，不允许在真实 bot-server 进程里启动。
+
 ### 1. 直接运行
 
 ```bash
 cargo run -- \
-  --agent claude \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --webhook-secret "change-me" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --addr 127.0.0.1:8080
 ```
@@ -64,9 +70,13 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent claude \
-  --telegram-agent pi \
-  --discord-agent codex \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-agent acp \
+  --acp-command /path/to/acp-agent \
+  --webhook-signing-secret "change-me-signing" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --discord-token "$DISCORD_TOKEN" \
   --feishu-app-id "$FEISHU_APP_ID" \
@@ -94,14 +104,14 @@ cargo run -- \
 
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=claude
+export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
+export OPENAI_API_KEY=your-api-key
+export AGENTIM_WEBHOOK_SECRET=change-me
 ./start.sh
 
-# 或改成真实 OpenAI-compatible backend
-# export AGENTIM_AGENT=openai
-# export OPENAI_API_KEY=...
+# 可选
 # export OPENAI_BASE_URL=https://api.openai.com/v1
 # export OPENAI_MODEL=gpt-4o-mini
 # export OPENAI_MAX_RETRIES=1
@@ -157,6 +167,15 @@ export DISCORD_INTERACTION_PUBLIC_KEY=discord-public-key-hex
 export FEISHU_WEBHOOK_VERIFICATION_TOKEN=feishu-native-token
 # /feishu 会校验请求体里的 token 字段
 ```
+
+对外暴露生产 webhook 时，至少要配置一层鉴权：
+
+- 全局 `AGENTIM_WEBHOOK_SECRET` 或 `AGENTIM_WEBHOOK_SIGNING_SECRET`
+- Telegram: 也可额外配置 `TELEGRAM_WEBHOOK_SECRET_TOKEN`
+- Discord: 也可额外配置 `DISCORD_INTERACTION_PUBLIC_KEY`
+- Feishu: 也可额外配置 `FEISHU_WEBHOOK_VERIFICATION_TOKEN`
+- Slack: 也可额外配置 `SLACK_SIGNING_SECRET`
+- QQ / DingTalk: 依赖全局共享密钥或全局签名校验
 
 先做 dry-run 看启动配置是否正确：
 
@@ -361,7 +380,8 @@ cargo run --example session_management
 - 内置 agent 仍是本地模拟实现
 - 当前二进制是“单默认 agent”模式，不是完整的多 agent 动态路由器
 - session 持久化还没有接到真正的存储后端
-- webhook 签名校验 / 更完整的生产安全配置还没做完
+- 生产默认值包含 `agent_timeout_ms=30000`、请求体大小限制（256 KiB）、后台异步 session 快照和按 session 串行化的消息处理
+- 真实生产流量请使用 `openai` 或 `acp`；`claude` / `codex` / `pi` 仍然只是开发 stub
 
 ## 相关文档
 

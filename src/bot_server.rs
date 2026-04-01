@@ -20,6 +20,8 @@ use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tower_http::limit::RequestBodyLimitLayer;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -129,7 +131,7 @@ impl Default for BotServerConfig {
             routing_rules: Vec::new(),
             max_session_messages: None,
             context_message_limit: 10,
-            agent_timeout_ms: None,
+            agent_timeout_ms: Some(30_000),
             state_file: None,
             state_backup_count: 0,
             webhook_secret: None,
@@ -149,6 +151,47 @@ struct AppState {
     agentim: Arc<AgentIM>,
     config: BotServerConfig,
     replay_cache: Arc<DashMap<String, i64>>,
+    persistence: Option<Arc<PersistenceWorker>>,
+}
+
+struct PersistenceWorker {
+    trigger: UnboundedSender<()>,
+}
+
+impl PersistenceWorker {
+    fn spawn(agentim: Arc<AgentIM>, path: String, backup_count: usize) -> Arc<Self> {
+        let (trigger, mut receiver) = unbounded_channel();
+        let worker = Arc::new(Self { trigger });
+
+        tokio::spawn(async move {
+            while receiver.recv().await.is_some() {
+                let agentim = agentim.clone();
+                let persist_path = path.clone();
+                let log_path = persist_path.clone();
+                match tokio::task::spawn_blocking(move || {
+                    agentim.save_sessions_to_path_with_rotation(&persist_path, backup_count)
+                })
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => {
+                        tracing::error!(error = %err, path = %log_path, "failed to persist sessions");
+                    }
+                    Err(err) => {
+                        tracing::error!(error = %err, path = %log_path, "persistence worker crashed");
+                    }
+                }
+            }
+        });
+
+        worker
+    }
+
+    fn request_snapshot(&self) -> Result<(), String> {
+        self.trigger
+            .send(())
+            .map_err(|_| "persistence worker unavailable".to_string())
+    }
 }
 
 #[derive(Serialize)]
@@ -237,11 +280,8 @@ fn collect_acp_sessions(agentim: &AgentIM, include_sensitive_ids: bool) -> Vec<A
 }
 
 fn persist_if_configured(state: &AppState) -> Result<(), String> {
-    if let Some(path) = state.config.state_file.as_deref() {
-        state
-            .agentim
-            .save_sessions_to_path_with_rotation(path, state.config.state_backup_count)
-            .map_err(|err| err.to_string())?;
+    if let Some(worker) = state.persistence.as_ref() {
+        worker.request_snapshot()?;
     }
 
     Ok(())
@@ -760,31 +800,54 @@ async fn slack_webhook(
 
     // Verify Slack signature if configured
     if let Some(ref _secret) = state.config.slack_signing_secret {
-        let timestamp = headers
+        let timestamp = match headers
             .get("x-slack-request-timestamp")
-            .and_then(|value| value.to_str().ok());
-        let signature = headers
-            .get("x-slack-signature")
-            .and_then(|value| value.to_str().ok());
-
-        if let (Some(ts), Some(sig)) = (timestamp, signature) {
-            // Get the channel to verify signature
-            if let Ok(channel) = state.agentim.get_channel(crate::bots::SLACK_CHANNEL_ID) {
-                if let Some(slack_channel) = channel
-                    .as_any()
-                    .downcast_ref::<crate::bots::SlackBotChannel>()
-                {
-                    if !slack_channel
-                        .verify_signature(&body, ts, sig)
-                        .unwrap_or(false)
-                    {
-                        return (
-                            StatusCode::UNAUTHORIZED,
-                            "invalid Slack signature".to_string(),
-                        );
-                    }
-                }
+            .and_then(|value| value.to_str().ok())
+        {
+            Some(value) => value,
+            None => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "missing x-slack-request-timestamp".to_string(),
+                )
             }
+        };
+        let signature = match headers
+            .get("x-slack-signature")
+            .and_then(|value| value.to_str().ok())
+        {
+            Some(value) => value,
+            None => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "missing x-slack-signature".to_string(),
+                )
+            }
+        };
+
+        let Ok(channel) = state.agentim.get_channel(crate::bots::SLACK_CHANNEL_ID) else {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "slack channel not initialized for signature verification".to_string(),
+            );
+        };
+        let Some(slack_channel) = channel
+            .as_any()
+            .downcast_ref::<crate::bots::SlackBotChannel>()
+        else {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "slack channel not initialized for signature verification".to_string(),
+            );
+        };
+        if !slack_channel
+            .verify_signature(&body, timestamp, signature)
+            .unwrap_or(false)
+        {
+            return (
+                StatusCode::UNAUTHORIZED,
+                "invalid Slack signature".to_string(),
+            );
         }
     }
 
@@ -898,6 +961,10 @@ pub fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
 }
 
 pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig) -> Router {
+    let persistence = config.state_file.as_ref().map(|path| {
+        PersistenceWorker::spawn(agentim.clone(), path.clone(), config.state_backup_count)
+    });
+
     Router::new()
         .route("/healthz", get(healthz))
         .route("/reviewz", get(reviewz))
@@ -907,10 +974,12 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/qq", post(qq_webhook))
         .route("/slack", post(slack_webhook))
         .route("/dingtalk", post(dingtalk_webhook))
+        .layer(RequestBodyLimitLayer::new(256 * 1024))
         .with_state(AppState {
             agentim,
             config,
             replay_cache: Arc::new(DashMap::new()),
+            persistence,
         })
 }
 

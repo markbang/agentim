@@ -22,7 +22,7 @@ colored = "2"
 prettytable-rs = "0.10"
 axum = "0.7"
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["trace"] }
+tower-http = { version = "0.5", features = ["limit", "trace"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"

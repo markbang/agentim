@@ -200,6 +200,7 @@ cargo test --test review_bridge
 ## 生产部署提醒
 
 - webhook 入口必须走 HTTPS
-- 需要继续补齐剩余平台签名校验
-- 真实部署建议把 session 存储外置
-- 当前内置 `claude` / `codex` / `pi` agent 仍是本地模拟实现；如果要接真实模型，优先使用现已提供的 OpenAI-compatible backend 适配，并结合超时/重试参数控制上游失败行为
+- 生产 webhook 至少启用一层鉴权：全局共享密钥、全局 HMAC 签名，或平台原生验签
+- QQ / DingTalk 没有独立平台验签时，必须依赖全局共享密钥或全局签名校验
+- session 快照已经支持后台异步落盘和 `.bak.N` 轮转；需要更强 durability 时再接外部存储
+- 当前真实生产 agent 入口是 `openai` 或 `acp`；内置 `claude` / `codex` / `pi` 仍是本地模拟实现，仅适合开发和 dry-run

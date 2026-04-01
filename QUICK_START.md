@@ -2,11 +2,17 @@
 
 ## 30 秒启动
 
+生产模式只支持真实 backend：`openai` 或 `acp`。内置 `claude` / `codex` / `pi` 仅用于开发和 dry-run。
+
 ### 方式 1：直接运行
 
 ```bash
 cargo run -- \
-  --agent claude \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --webhook-secret "change-me" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --addr 127.0.0.1:8080
 ```
@@ -15,9 +21,13 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent claude \
-  --telegram-agent pi \
-  --discord-agent codex \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --telegram-agent acp \
+  --acp-command /path/to/acp-agent \
+  --webhook-signing-secret "change-me-signing" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --discord-token "$DISCORD_TOKEN"
 ```
@@ -44,7 +54,7 @@ Server 启动后会监听：
 
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=claude
+export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
 export OPENAI_API_KEY=...
 export OPENAI_BASE_URL=https://api.openai.com/v1
@@ -70,8 +80,8 @@ export TELEGRAM_TOKEN=your-token
 ```json
 {
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "pi"},
-    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "codex"}
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "acp"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "openai"}
   ]
 }
 ```

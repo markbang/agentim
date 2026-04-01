@@ -129,6 +129,30 @@ fn temp_state_file() -> String {
         .to_string()
 }
 
+async fn wait_for_snapshot(path: &str) -> String {
+    for _ in 0..100 {
+        if let Ok(snapshot) = std::fs::read_to_string(path) {
+            if serde_json::from_str::<serde_json::Value>(&snapshot).is_ok() {
+                return snapshot;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    panic!("timed out waiting for snapshot at {}", path);
+}
+
+async fn wait_for_path(path: &str) {
+    for _ in 0..100 {
+        if std::path::Path::new(path).exists() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    panic!("timed out waiting for {}", path);
+}
+
 fn signed_headers(secret: &str, body: &str, timestamp: i64, nonce: &str) -> [(String, String); 3] {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(timestamp.to_string().as_bytes());
@@ -1349,6 +1373,7 @@ async fn readiness_reviewer_persists_sessions_between_restarts() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    wait_for_snapshot(&state_file).await;
 
     let restored_manager = Arc::new(AgentIM::new());
     register_review_agent(&restored_manager, "default-agent", "default");
@@ -1396,7 +1421,7 @@ async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let snapshot = std::fs::read_to_string(&state_file).unwrap();
+    let snapshot = wait_for_snapshot(&state_file).await;
     let sessions: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
     assert!(sessions.is_array());
 
@@ -1439,6 +1464,7 @@ async fn persistence_reviewer_recovers_from_latest_valid_backup() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
+    wait_for_path(&format!("{}.bak.1", state_file)).await;
 
     std::fs::write(&state_file, "not valid json").unwrap();
 
@@ -1498,6 +1524,9 @@ async fn persistence_reviewer_rotates_snapshot_backups() {
 
     let backup_1 = format!("{}.bak.1", state_file);
     let backup_2 = format!("{}.bak.2", state_file);
+    wait_for_path(&state_file).await;
+    wait_for_path(&backup_1).await;
+    wait_for_path(&backup_2).await;
     assert!(std::path::Path::new(&state_file).exists());
     assert!(std::path::Path::new(&backup_1).exists());
     assert!(std::path::Path::new(&backup_2).exists());
@@ -1641,6 +1670,33 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
         .await
         .unwrap();
     assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn security_reviewer_rejects_slack_requests_missing_signature_headers() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            slack_signing_secret: Some("slack-secret".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/slack")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"type":"url_verification","challenge":"hello"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -2076,6 +2132,18 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Dry run complete"));
+}
+
+#[test]
+fn usability_reviewer_non_dry_run_rejects_stub_agents_for_production() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args(["--agent", "claude", "--webhook-secret", "secret"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot use stub agents"));
 }
 
 #[test]

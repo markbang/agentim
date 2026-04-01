@@ -4,7 +4,7 @@
 
 当前 `agentim` 二进制会：
 
-1. 选择一个默认 agent（`--agent`，支持 `claude` / `codex` / `pi` / `openai`）
+1. 选择一个默认 agent（`--agent`，生产模式建议 `openai` 或 `acp`；`claude` / `codex` / `pi` 仅用于开发和 dry-run）
 2. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
 3. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
 4. 注册你提供凭证的 IM channel
@@ -19,7 +19,11 @@
 
 ```bash
 cargo run -- \
-  --agent claude \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --webhook-secret "change-me" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --addr 0.0.0.0:8080
 ```
@@ -40,7 +44,10 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent codex \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
   --discord-token "$DISCORD_TOKEN" \
   --discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY" \
   --addr 0.0.0.0:8080
@@ -50,7 +57,10 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent pi \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
   --feishu-app-id "$FEISHU_APP_ID" \
   --feishu-app-secret "$FEISHU_APP_SECRET"
 ```
@@ -62,7 +72,11 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent claude \
+  --agent openai \
+  --openai-api-key "$OPENAI_API_KEY" \
+  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
+  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --webhook-signing-secret "change-me-signing" \
   --qq-bot-id "$QQ_BOT_ID" \
   --qq-bot-token "$QQ_BOT_TOKEN"
 ```
@@ -71,9 +85,11 @@ cargo run -- \
 
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=claude
+export AGENTIM_AGENT=openai
 export AGENTIM_ADDR=127.0.0.1:8080
 export TELEGRAM_TOKEN=your-token
+export OPENAI_API_KEY=your-api-key
+export AGENTIM_WEBHOOK_SECRET=change-me
 ./start.sh
 ```
 
@@ -178,6 +194,7 @@ cargo test --test review_bridge
 ## 生产建议
 
 - 使用 HTTPS 暴露 webhook
-- 为各平台增加签名校验
-- 把 session 持久化接到真实存储
-- 为真实 agent API 调用增加超时和重试
+- 至少启用一层 webhook 保护：共享密钥、全局签名校验或平台原生验签
+- 真实流量使用 `openai` 或 `acp`；`claude` / `codex` / `pi` 仅保留给开发与 dry-run
+- 默认 `agent_timeout_ms` 已是 `30000`，生产上仍建议按上游 SLA 明确设置
+- session 快照已支持后台异步写盘与 `.bak.N` 轮转；如果需要更强恢复能力，再接外部存储
