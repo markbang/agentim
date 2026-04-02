@@ -371,7 +371,7 @@ routing_score=$((routing_score + autocreate_ok * 10))
 review_artifacts=$(python3 - <<'PY'
 from pathlib import Path
 count = 0
-for path in [Path('autoresearch.md'), Path('README.md'), Path('BOT_INTEGRATION.md')]:
+for path in [Path('README.md'), Path('QUICK_START.md'), Path('BOT_INTEGRATION.md'), Path('SETUP.md')]:
     if path.exists() and 'review' in path.read_text().lower():
         count += 1
 print(count)

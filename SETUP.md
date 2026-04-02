@@ -1,113 +1,87 @@
 # AgentIM Setup Guide
 
-## 运行模型
+## 启动模型
 
-当前 `agentim` 二进制会：
+`agentim` 的当前运行模型很简单：
 
-1. 选择一个默认 agent（`--agent`，生产模式建议 `openai` 或 `acp`；`claude` / `codex` / `pi` 仅用于开发和 dry-run）
-2. Telegram 可选地改成 `--telegram-poll`，直接使用 `getUpdates` 长轮询而不是 webhook
-3. 可选地为不同平台设置不同 agent（`--telegram-agent` / `--discord-agent` / `--feishu-agent` / `--qq-agent`）
-4. 可选地通过 `routing_rules` 为特定平台上的特定用户覆盖 agent
-5. 注册你提供凭证的 IM channel
-6. 启动 webhook server 或 Telegram polling loop
-7. 对收到的消息自动创建/复用 session，并把回复发回原平台
+1. 选择一个默认 agent
+2. 注册你提供凭证的平台 channel
+3. 按需启用 webhook、Telegram polling、Discord gateway
+4. 自动创建和复用 session
+5. 记录 `reply_target` 并把回复发回原平台
 
-如果你需要更复杂的 workspace / 组织级策略路由，建议在库层基于 `AgentIM` 扩展。
+优先级从高到低：
 
-## 方式 1：直接命令行启动
+1. CLI 参数
+2. 环境变量经 `start.sh` 转成的参数
+3. `agentim.json` / `--config-file`
 
-### Telegram
+## 推荐模式
+
+### 本机 / 内网
+
+- Telegram: `--telegram-poll`
+- Discord: `--discord-gateway`
+
+这种模式最省事，不需要公网入口。
+
+### 公网 webhook
+
+如果你要对外暴露 HTTP 路由，建议至少打开一层认证：
+
+- `--webhook-secret`
+- `--webhook-signing-secret`
+- 平台原生验签参数
+
+## 直接命令行启动
+
+### Telegram polling
 
 ```bash
 cargo run -- \
   --agent openai \
   --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
   --telegram-token "$TELEGRAM_TOKEN" \
   --telegram-poll
 ```
 
-如果你确实要让 Telegram 走 webhook，再补上 `--webhook-secret` 或 `--telegram-webhook-secret-token`，并暴露 HTTP 地址。
-
-### OpenAI-compatible backend
+### Discord gateway
 
 ```bash
 cargo run -- \
   --agent openai \
   --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
-  --openai-max-retries 1 \
-  --telegram-token "$TELEGRAM_TOKEN"
+  --discord-token "$DISCORD_TOKEN" \
+  --discord-gateway
 ```
 
-### Discord
+### Webhook 模式
 
 ```bash
 cargo run -- \
   --agent openai \
   --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --webhook-secret change-me \
+  --telegram-token "$TELEGRAM_TOKEN" \
   --discord-token "$DISCORD_TOKEN" \
-  --discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY" \
   --addr 0.0.0.0:8080
 ```
 
-### Feishu
-
-```bash
-cargo run -- \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
-  --feishu-app-id "$FEISHU_APP_ID" \
-  --feishu-app-secret "$FEISHU_APP_SECRET"
-```
-
-首次接 webhook 时，`/feishu` 现在会直接处理 `type=url_verification` challenge。
-如需额外校验，也可以配置 `--feishu-verification-token` / `FEISHU_WEBHOOK_VERIFICATION_TOKEN`。
-
-### QQ
-
-```bash
-cargo run -- \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
-  --webhook-signing-secret "change-me-signing" \
-  --qq-bot-id "$QQ_BOT_ID" \
-  --qq-bot-token "$QQ_BOT_TOKEN"
-```
-
-## 方式 2：环境变量 + `start.sh`
+## 用 `start.sh`
 
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
 export AGENTIM_AGENT=openai
+export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_TELEGRAM_POLL=1
 export AGENTIM_DISCORD_GATEWAY=1
-export AGENTIM_ADDR=127.0.0.1:8080
-export TELEGRAM_TOKEN=your-token
-export DISCORD_TOKEN=your-discord-token
 export OPENAI_API_KEY=your-api-key
+export TELEGRAM_TOKEN=your-telegram-token
+export DISCORD_TOKEN=your-discord-token
 ./start.sh
 ```
 
-本地只跑 Telegram / Discord bot bridge 时，可以只开 `AGENTIM_TELEGRAM_POLL=1` 或 `AGENTIM_DISCORD_GATEWAY=1`，不需要先准备公网 webhook。
-
-### Dry-run
-
-```bash
-AGENTIM_DRY_RUN=1 ./start.sh
-```
-
-这个模式适合先 review 启动参数，不真正拉起 server，并且会跳过真实 IM 健康检查。
-
-## 支持的环境变量
+## 常用环境变量
 
 - `AGENTIM_CONFIG_FILE`
 - `AGENTIM_AGENT`
@@ -126,84 +100,62 @@ AGENTIM_DRY_RUN=1 ./start.sh
 - `AGENTIM_WEBHOOK_SECRET`
 - `AGENTIM_WEBHOOK_SIGNING_SECRET`
 - `AGENTIM_WEBHOOK_MAX_SKEW_SECONDS`
-- `TELEGRAM_WEBHOOK_SECRET_TOKEN`
-- `DISCORD_INTERACTION_PUBLIC_KEY`
-- `FEISHU_WEBHOOK_VERIFICATION_TOKEN`
-- `TELEGRAM_AGENT`
-- `DISCORD_AGENT`
-- `FEISHU_AGENT`
-- `QQ_AGENT`
 - `TELEGRAM_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET_TOKEN`
 - `DISCORD_TOKEN`
-- `DISCORD_TOKEN`
+- `DISCORD_INTERACTION_PUBLIC_KEY`
 - `FEISHU_APP_ID`
 - `FEISHU_APP_SECRET`
+- `FEISHU_WEBHOOK_VERIFICATION_TOKEN`
 - `QQ_BOT_ID`
 - `QQ_BOT_TOKEN`
+- `SLACK_TOKEN`
+- `SLACK_SIGNING_SECRET`
+- `DINGTALK_TOKEN`
+- `DINGTALK_SECRET`
 
-兼容旧变量：
+兼容旧格式：
+
 - `FEISHU_TOKEN=app_id:app_secret`
 - `QQ_TOKEN=bot_id:bot_token`
 
-## JSON 配置里的用户级路由规则
+## 状态和上下文
+
+如果需要保留会话状态并限制单次上下文：
+
+```bash
+--state-file .agentim/sessions.json
+--state-backup-count 2
+--max-session-messages 50
+--context-message-limit 12
+--agent-timeout-ms 30000
+```
+
+## Routing Rules
 
 示例：
 
 ```json
 {
-  "agent": "claude",
-  "telegram_agent": "codex",
+  "agent": "openai",
+  "telegram_agent": "acp",
+  "discord_agent": "openai",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "pi"},
-    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "codex"}
+    {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "acp"},
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "openai"}
   ]
 }
 ```
 
-优先级：
-1. `routing_rules` 命中（先比 `priority`，再比规则具体度；可按 `channel` + `user_id`、`reply_target`，或 prefix 规则匹配）
-2. 平台级 agent override
-3. 默认 `agent`
-
-## Session 历史控制
-
-你可以在 JSON 配置或 CLI 中设置：
-
-```json
-{
-  "max_session_messages": 50,
-  "context_message_limit": 12,
-  "agent_timeout_ms": 30000,
-  "state_backup_count": 2
-}
-```
-
-`max_session_messages` 控制 session 最终保留多少历史；`context_message_limit` 控制每次实际送进 agent 的上下文窗口；`agent_timeout_ms` 控制单次 agent 调用的最长耗时。
-这样可以保留较长的本地会话历史，同时避免每轮都把全部历史塞给 agent，也避免真实 agent backend 把 webhook 长时间挂死。
-如果主状态文件损坏，启动时还会尝试从最近的备份快照恢复。
-
-## Webhook 路由
-
-- `/telegram`
-- `/discord`
-- `/feishu`
-- `/qq`
-
-## Setup 后建议立刻执行的检查
+## Dry-run
 
 ```bash
-cargo test --test review_bridge
-./autoresearch.sh
+AGENTIM_DRY_RUN=1 ./start.sh
 ```
 
-这两个检查分别负责：
-- **review**：功能回归
-- **eval**：结构化完成度评估
+## 验证
 
-## 生产建议
-
-- 使用 HTTPS 暴露 webhook
-- 至少启用一层 webhook 保护：共享密钥、全局签名校验或平台原生验签
-- 真实流量使用 `openai` 或 `acp`；`claude` / `codex` / `pi` 仅保留给开发与 dry-run
-- 默认 `agent_timeout_ms` 已是 `30000`，生产上仍建议按上游 SLA 明确设置
-- session 快照已支持后台异步写盘与 `.bak.N` 轮转；如果需要更强恢复能力，再接外部存储
+```bash
+cargo test
+cargo test --test review_bridge
+```
