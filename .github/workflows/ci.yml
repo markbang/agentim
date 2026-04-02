@@ -13,6 +13,13 @@ permissions:
   contents: read
 
 jobs:
+  prek:
+    name: Prek
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: j178/prek-action@v2
+
   test:
     name: Test
     runs-on: ubuntu-latest
