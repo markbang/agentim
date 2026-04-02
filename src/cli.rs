@@ -3,7 +3,7 @@ use colored::*;
 
 #[derive(Parser)]
 #[command(name = "AgentIM")]
-#[command(about = "Multi-Channel AI Agent Manager", long_about = None)]
+#[command(about = "ACP-first IM bridge for coding agents", long_about = None)]
 pub struct Args {
     /// Telegram bot token
     #[arg(long)]
@@ -73,7 +73,7 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_secret: Option<String>,
 
-    /// Default agent type to use (claude, codex, pi, openai, acp) when no channel-specific override is set
+    /// Default agent type to use (recommended: acp; also supports openai, claude, codex, pi) when no channel-specific override is set
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -101,23 +101,23 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_agent: Option<String>,
 
-    /// API key for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional API key for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_api_key: Option<String>,
 
-    /// Base URL for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional base URL for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_base_url: Option<String>,
 
-    /// Model name for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional model name for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_model: Option<String>,
 
-    /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
+    /// Optional retry count for transient 5xx/network failures from the OpenAI-compatible backend
     #[arg(long)]
     pub openai_max_retries: Option<usize>,
 
-    /// Command used to launch an ACP-compatible agent subprocess
+    /// Command used to launch the ACP-compatible agent subprocess; this is the recommended backend
     #[arg(long)]
     pub acp_command: Option<String>,
 

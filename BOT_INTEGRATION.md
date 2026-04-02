@@ -23,6 +23,8 @@ AgentIM 当前支持两种接入形态：
 4. 调用 agent backend
 5. 把回复发回原平台目标
 
+当前推荐 backend 是 `acp`。也就是 AgentIM 只负责 bridge，provider / model / key 都由外部 coding agent 自己管理。
+
 ## 当前路由
 
 - `POST /telegram`
@@ -40,8 +42,9 @@ AgentIM 当前支持两种接入形态：
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --telegram-token "$TELEGRAM_TOKEN" \
   --telegram-poll
 ```
@@ -50,8 +53,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --telegram-token "$TELEGRAM_TOKEN" \
   --webhook-secret change-me
 ```
@@ -70,8 +74,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --discord-token "$DISCORD_TOKEN" \
   --discord-gateway
 ```
@@ -80,8 +85,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --discord-token "$DISCORD_TOKEN" \
   --discord-interaction-public-key "$DISCORD_INTERACTION_PUBLIC_KEY"
 ```
@@ -94,8 +100,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --feishu-app-id "$FEISHU_APP_ID" \
   --feishu-app-secret "$FEISHU_APP_SECRET"
 ```
@@ -112,8 +119,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --qq-bot-id "$QQ_BOT_ID" \
   --qq-bot-token "$QQ_BOT_TOKEN"
 ```
@@ -130,8 +138,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --slack-token "$SLACK_TOKEN" \
   --slack-signing-secret "$SLACK_SIGNING_SECRET"
 ```
@@ -140,8 +149,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --dingtalk-token "$DINGTALK_TOKEN" \
   --dingtalk-secret "$DINGTALK_SECRET"
 ```

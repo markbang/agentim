@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
+echo "║          AgentIM - ACP-First IM Agent Bridge             ║"
 echo "║             Setup wrapper for current runtime            ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
@@ -29,8 +29,8 @@ if [[ -z "${AGENTIM_CONFIG_FILE:-}" && -f agentim.json ]]; then
   export AGENTIM_CONFIG_FILE=agentim.json
 fi
 
-if [[ -z "${AGENTIM_AGENT:-}" ]]; then
-  export AGENTIM_AGENT=claude
+if [[ -z "${AGENTIM_AGENT:-}" && -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
+  export AGENTIM_AGENT=acp
 fi
 
 if [[ -z "${AGENTIM_ADDR:-}" ]]; then
@@ -43,8 +43,11 @@ enabled_channels=()
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && enabled_channels+=(feishu)
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && enabled_channels+=(qq)
 
-echo "Agent:   ${AGENTIM_AGENT}"
+echo "Agent:   ${AGENTIM_AGENT:-from config or binary default}"
 echo "Address: ${AGENTIM_ADDR}"
+if [[ -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
+  echo "ACP:     ${AGENTIM_ACP_COMMAND}"
+fi
 if [[ -n "${AGENTIM_CONFIG_FILE:-}" ]]; then
   echo "Config:  ${AGENTIM_CONFIG_FILE}"
 fi

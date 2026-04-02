@@ -1,23 +1,25 @@
 {
-  "agent": "openai",
-  "telegram_agent": "openai",
-  "discord_agent": "openai",
-  "openai_api_key": "YOUR_OPENAI_API_KEY",
-  "openai_base_url": "https://api.openai.com/v1",
-  "openai_model": "gpt-4o-mini",
-  "openai_max_retries": 1,
+  "agent": "acp",
+  "telegram_agent": "acp",
+  "discord_agent": "acp",
+  "acp_command": "/path/to/your-coding-agent",
+  "acp_args": [],
+  "acp_cwd": "/path/to/your/workspace",
+  "acp_env": {
+    "PATH": "/usr/local/bin:/usr/bin:/bin"
+  },
   "routing_rules": [
     {
       "channel": "telegram",
       "user_id": "vip-user",
       "priority": 10,
-      "agent": "openai"
+      "agent": "acp"
     },
     {
       "channel": "discord",
       "reply_target_prefix": "review-",
       "priority": 1,
-      "agent": "openai"
+      "agent": "acp"
     }
   ],
   "telegram_token": "YOUR_TELEGRAM_TOKEN",

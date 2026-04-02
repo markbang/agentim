@@ -7,6 +7,10 @@ AGENT="${AGENTIM_AGENT:-}"
 ADDR="${AGENTIM_ADDR:-}"
 DRY_RUN="${AGENTIM_DRY_RUN:-0}"
 
+if [[ -z "$AGENT" && -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
+  AGENT="acp"
+fi
+
 args=()
 [[ -n "$AGENT" ]] && args+=(--agent "$AGENT")
 [[ -n "$ADDR" ]] && args+=(--addr "$ADDR")
@@ -22,6 +26,8 @@ args=()
 [[ -n "${OPENAI_BASE_URL:-}" ]] && args+=(--openai-base-url "$OPENAI_BASE_URL")
 [[ -n "${OPENAI_MODEL:-}" ]] && args+=(--openai-model "$OPENAI_MODEL")
 [[ -n "${OPENAI_MAX_RETRIES:-}" ]] && args+=(--openai-max-retries "$OPENAI_MAX_RETRIES")
+[[ -n "${AGENTIM_ACP_COMMAND:-}" ]] && args+=(--acp-command "$AGENTIM_ACP_COMMAND")
+[[ -n "${AGENTIM_ACP_CWD:-}" ]] && args+=(--acp-cwd "$AGENTIM_ACP_CWD")
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
@@ -62,13 +68,15 @@ elif [[ -n "${QQ_TOKEN:-}" ]]; then
 fi
 
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
+echo "║          AgentIM - ACP-First IM Agent Bridge             ║"
 echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
-echo "Agent:   ${AGENT:-from config or binary default (claude)}"
+echo "Agent:   ${AGENT:-from config or binary default}"
 echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
+[[ -n "${AGENTIM_ACP_COMMAND:-}" ]] && echo "ACP command: ${AGENTIM_ACP_COMMAND}"
+[[ -n "${AGENTIM_ACP_CWD:-}" ]] && echo "ACP cwd: ${AGENTIM_ACP_CWD}"
 [[ -n "${OPENAI_BASE_URL:-}" ]] && echo "OpenAI base URL: ${OPENAI_BASE_URL}"
 [[ -n "${OPENAI_MODEL:-}" ]] && echo "OpenAI model: ${OPENAI_MODEL}"
 [[ -n "${OPENAI_MAX_RETRIES:-}" ]] && echo "OpenAI retries: ${OPENAI_MAX_RETRIES}"

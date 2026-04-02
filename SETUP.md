@@ -4,7 +4,7 @@
 
 `agentim` 的当前运行模型很简单：
 
-1. 选择一个默认 agent
+1. 选择一个默认 agent，当前推荐 `acp`
 2. 注册你提供凭证的平台 channel
 3. 按需启用 webhook、Telegram polling、Discord gateway
 4. 自动创建和复用 session
@@ -39,8 +39,9 @@
 
 ```bash
 cargo run -- \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --telegram-token "$TELEGRAM_TOKEN" \
   --telegram-poll
 ```
@@ -49,8 +50,9 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --discord-token "$DISCORD_TOKEN" \
   --discord-gateway
 ```
@@ -59,8 +61,9 @@ cargo run -- \
 
 ```bash
 cargo run -- \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --webhook-secret change-me \
   --telegram-token "$TELEGRAM_TOKEN" \
   --discord-token "$DISCORD_TOKEN" \
@@ -71,11 +74,12 @@ cargo run -- \
 
 ```bash
 export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=openai
+export AGENTIM_AGENT=acp
 export AGENTIM_ADDR=127.0.0.1:8080
 export AGENTIM_TELEGRAM_POLL=1
 export AGENTIM_DISCORD_GATEWAY=1
-export OPENAI_API_KEY=your-api-key
+export AGENTIM_ACP_COMMAND=/path/to/your-coding-agent
+export AGENTIM_ACP_CWD=/path/to/your/workspace
 export TELEGRAM_TOKEN=your-telegram-token
 export DISCORD_TOKEN=your-discord-token
 ./start.sh
@@ -88,10 +92,10 @@ export DISCORD_TOKEN=your-discord-token
 - `AGENTIM_ADDR`
 - `AGENTIM_TELEGRAM_POLL`
 - `AGENTIM_DISCORD_GATEWAY`
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `OPENAI_MODEL`
-- `OPENAI_MAX_RETRIES`
+- `AGENTIM_ACP_COMMAND`
+- `AGENTIM_ACP_CWD`
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_MAX_RETRIES`
+  仅在你显式使用 `--agent openai` 时才需要
 - `AGENTIM_STATE_FILE`
 - `AGENTIM_STATE_BACKUP_COUNT`
 - `AGENTIM_MAX_SESSION_MESSAGES`
@@ -137,12 +141,12 @@ export DISCORD_TOKEN=your-discord-token
 
 ```json
 {
-  "agent": "openai",
+  "agent": "acp",
   "telegram_agent": "acp",
-  "discord_agent": "openai",
+  "discord_agent": "acp",
   "routing_rules": [
     {"channel": "telegram", "user_id": "vip-user", "priority": 10, "agent": "acp"},
-    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "openai"}
+    {"channel": "discord", "reply_target_prefix": "review-", "priority": 1, "agent": "acp"}
   ]
 }
 ```
@@ -152,6 +156,8 @@ export DISCORD_TOKEN=your-discord-token
 ```bash
 AGENTIM_DRY_RUN=1 ./start.sh
 ```
+
+如果你要的就是 “bridge 调外部 coding agent”，优先用 `acp`。`openai` 只是内置 HTTP backend 兼容路径。
 
 ## 验证
 

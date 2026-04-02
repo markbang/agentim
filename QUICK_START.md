@@ -2,7 +2,7 @@
 
 ## 最短路径
 
-如果你只是想在本机把 bot 跑起来，优先用：
+如果你只是想在本机把 bot 跑起来，并把消息桥接给 ACP coding agent，优先用：
 
 - Telegram: `--telegram-poll`
 - Discord: `--discord-gateway`
@@ -25,10 +25,9 @@ cargo run -- --help
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --telegram-token "$TELEGRAM_TOKEN" \
   --telegram-poll \
   --state-file .agentim/sessions.json \
@@ -39,10 +38,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --discord-token "$DISCORD_TOKEN" \
   --discord-gateway \
   --state-file .agentim/sessions.json \
@@ -53,8 +51,9 @@ agentim \
 
 ```bash
 agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
+  --agent acp \
+  --acp-command /path/to/your-coding-agent \
+  --acp-cwd /path/to/your/workspace \
   --telegram-token "$TELEGRAM_TOKEN" \
   --telegram-poll \
   --discord-token "$DISCORD_TOKEN" \
@@ -68,8 +67,9 @@ agentim \
 cp agentim.json.example agentim.json
 
 export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=openai
-export OPENAI_API_KEY=your-api-key
+export AGENTIM_AGENT=acp
+export AGENTIM_ACP_COMMAND=/path/to/your-coding-agent
+export AGENTIM_ACP_CWD=/path/to/your/workspace
 export TELEGRAM_TOKEN=your-telegram-token
 export DISCORD_TOKEN=your-discord-token
 export AGENTIM_TELEGRAM_POLL=1
@@ -91,3 +91,5 @@ AGENTIM_DRY_RUN=1 ./start.sh
 cargo test
 cargo test --test review_bridge
 ```
+
+如果你确实不走 ACP，而是要让 AgentIM 自己直连 OpenAI-compatible HTTP，再参考 [README.md](README.md) 里的可选内置 backend 部分。
