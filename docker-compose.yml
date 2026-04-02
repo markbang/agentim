@@ -10,8 +10,13 @@ services:
       - ./state:/app/state
     environment:
       - RUST_LOG=info
-      - AGENTIM_CONFIG=/app/config/config.json
-      - AGENTIM_STATE=/app/state/sessions.json
+      # Copy agentim.json.example to ./config/agentim.json before starting compose.
+      - AGENTIM_CONFIG_FILE=/app/config/agentim.json
+      - AGENTIM_STATE_FILE=/app/state/sessions.json
+      # If you use the recommended ACP backend inside the container,
+      # make sure the agent binary exists inside the image and then set:
+      # - AGENTIM_ACP_COMMAND=/usr/local/bin/your-coding-agent
+      # - AGENTIM_ACP_CWD=/workspace
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]

@@ -29,6 +29,14 @@ if [[ -z "${AGENTIM_CONFIG_FILE:-}" && -f agentim.json ]]; then
   export AGENTIM_CONFIG_FILE=agentim.json
 fi
 
+if [[ -z "${AGENTIM_CONFIG_FILE:-}" && -n "${AGENTIM_CONFIG:-}" ]]; then
+  export AGENTIM_CONFIG_FILE="${AGENTIM_CONFIG}"
+fi
+
+if [[ -z "${AGENTIM_STATE_FILE:-}" && -n "${AGENTIM_STATE:-}" ]]; then
+  export AGENTIM_STATE_FILE="${AGENTIM_STATE}"
+fi
+
 if [[ -z "${AGENTIM_AGENT:-}" && -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
   export AGENTIM_AGENT=acp
 fi
@@ -48,8 +56,17 @@ echo "Address: ${AGENTIM_ADDR}"
 if [[ -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
   echo "ACP:     ${AGENTIM_ACP_COMMAND}"
 fi
+if [[ -n "${AGENTIM_ACP_ARGS:-}" ]]; then
+  echo "ACP args: ${AGENTIM_ACP_ARGS}"
+fi
+if [[ -n "${AGENTIM_ACP_ENV:-}" ]]; then
+  echo "ACP env:  ${AGENTIM_ACP_ENV}"
+fi
 if [[ -n "${AGENTIM_CONFIG_FILE:-}" ]]; then
   echo "Config:  ${AGENTIM_CONFIG_FILE}"
+fi
+if [[ -n "${AGENTIM_STATE_FILE:-}" ]]; then
+  echo "State:   ${AGENTIM_STATE_FILE}"
 fi
 if (( ${#enabled_channels[@]} > 0 )); then
   echo "Channels: ${enabled_channels[*]}"

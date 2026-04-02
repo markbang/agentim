@@ -19,6 +19,8 @@ IM platform -> AgentIM -> ACP coding agent
 
 `openai` 仍然保留为内置 HTTP backend，但它只是兼容后备选项，不是这个仓库的主路径。
 
+如果你已经给了 `--acp-command`，现在可以不写 `--agent acp`。AgentIM 会自动把默认 backend 推断成 `acp`。
+
 ## 支持的 ingress
 
 - Telegram
@@ -115,6 +117,16 @@ export AGENTIM_DISCORD_GATEWAY=1
 
 如果设置了 `AGENTIM_ACP_COMMAND` 但没显式给 `AGENTIM_AGENT`，`start.sh` 也会自动推断成 `acp`。
 
+复杂一点的 ACP 启动参数也可以直接走 wrapper：
+
+```bash
+export AGENTIM_ACP_ARGS="--sandbox workspace-write --approval never"
+export AGENTIM_ACP_ENV="RUST_LOG=info"
+./start.sh
+```
+
+如果某个参数值里本身包含空格，优先放进 `agentim.json` 的 `acp_args` / `acp_env`。
+
 ## Dry-run
 
 ```bash
@@ -127,6 +139,18 @@ TELEGRAM_TOKEN=dummy \
 ```
 
 Dry-run 会跳过真实 IM 健康检查，适合先验证 bridge 配置。
+
+## Docker
+
+仓库内的镜像入口现在也走同一套 ACP-first wrapper。
+
+```bash
+docker compose up --build
+```
+
+但要注意一件事：如果你用的是推荐的 `acp` backend，ACP agent 本身也必须存在于容器里，或者以 volume / 自定义镜像方式提供给容器。AgentIM 只负责 bridge，不会替你把 coding agent 一起装进去。
+
+仓库里的 `docker-compose.yml` 默认会读取 `./config/agentim.json`。启动前先从 `agentim.json.example` 复制一份过去，再填你自己的 token 和 ACP 配置。
 
 ## 状态与上下文
 

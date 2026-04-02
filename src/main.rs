@@ -147,6 +147,26 @@ fn is_stub_agent_type(agent_type: &str) -> bool {
     matches!(agent_type, "claude" | "codex" | "pi")
 }
 
+fn infer_default_agent_type(
+    configured_agent_type: Option<String>,
+    acp_command: Option<&str>,
+    openai_api_key: Option<&str>,
+) -> (String, Option<&'static str>) {
+    if let Some(agent_type) = configured_agent_type {
+        return (agent_type, None);
+    }
+
+    if acp_command.is_some() {
+        return ("acp".to_string(), Some("ACP command"));
+    }
+
+    if openai_api_key.is_some() {
+        return ("openai".to_string(), Some("OpenAI-compatible API key"));
+    }
+
+    ("claude".to_string(), None)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn validate_production_runtime(
     configured_agent_types: &[String],
@@ -296,15 +316,6 @@ async fn main() -> anyhow::Result<()> {
     let runtime_config = load_runtime_config(args.config_file.as_deref())?;
     let agentim = AgentIM::new();
 
-    let default_agent_type =
-        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "claude".to_string());
-    let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
-    let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
-    let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
-    let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
-    let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
-    let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
-
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
     let telegram_webhook_secret_token = merge_option(
         args.telegram_webhook_secret_token,
@@ -380,6 +391,17 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(300);
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let (default_agent_type, inferred_default_agent_from) = infer_default_agent_type(
+        merge_option(args.agent, runtime_config.agent),
+        acp_command.as_deref(),
+        openai_api_key.as_deref(),
+    );
+    let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
+    let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
+    let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
+    let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
+    let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
+    let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
 
     let agent_runtime_options = AgentRuntimeOptions {
         openai_api_key,
@@ -423,6 +445,12 @@ async fn main() -> anyhow::Result<()> {
         "Default agent '{}' registered",
         default_agent_type
     ));
+    if let Some(reason) = inferred_default_agent_from {
+        cli::print_info(&format!(
+            "No default agent configured; inferred '{}' from {}",
+            default_agent_type, reason
+        ));
+    }
     if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
         cli::print_info(&format!(
             "OpenAI-compatible backend retries set to {}",

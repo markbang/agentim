@@ -2112,6 +2112,26 @@ fn usability_reviewer_dry_run_accepts_acp_agent_config() {
 }
 
 #[test]
+fn usability_reviewer_dry_run_inferrs_acp_agent_from_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args([
+            "--dry-run",
+            "--acp-command",
+            "/bin/echo",
+            "--acp-arg",
+            "agent-ready",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'acp' registered"));
+    assert!(stdout.contains("inferred 'acp' from ACP command"));
+    assert!(stdout.contains("Dry run complete"));
+}
+
+#[test]
 fn usability_reviewer_binary_dry_run_exits_cleanly() {
     let state_file = temp_state_file();
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
@@ -2196,6 +2216,30 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Telegram native webhook secret token enabled"));
     assert!(stdout.contains("Discord interaction signature verification enabled"));
     assert!(stdout.contains("Feishu webhook verification token enabled"));
+    assert!(stdout.contains("Dry run complete"));
+
+    let _ = std::fs::remove_file(config_path);
+}
+
+#[test]
+fn usability_reviewer_inferrs_acp_agent_from_runtime_config_file() {
+    let config_path = temp_state_file();
+    let config = r#"{
+  "acp_command": "/bin/echo",
+  "acp_args": ["agent-ready"],
+  "state_file": ".agentim/test-sessions.json"
+}"#;
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args(["--config-file", &config_path, "--dry-run"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'acp' registered"));
+    assert!(stdout.contains("inferred 'acp' from ACP command"));
     assert!(stdout.contains("Dry run complete"));
 
     let _ = std::fs::remove_file(config_path);
