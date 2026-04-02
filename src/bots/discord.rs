@@ -231,7 +231,7 @@ async fn send_gateway_json<
     value: serde_json::Value,
 ) -> Result<()> {
     write
-        .send(WebSocketMessage::Text(value.to_string().into()))
+        .send(WebSocketMessage::Text(value.to_string()))
         .await
         .map_err(|e| AgentError::ChannelError(format!("Discord gateway write failed: {}", e)))
 }
@@ -546,8 +546,7 @@ mod tests {
                         "op": 10,
                         "d": { "heartbeat_interval": 50 }
                     })
-                    .to_string()
-                    .into(),
+                    .to_string(),
                 ))
                 .await
                 .unwrap();
@@ -576,8 +575,7 @@ mod tests {
                             "channel_id": "channel-42"
                         }
                     })
-                    .to_string()
-                    .into(),
+                    .to_string(),
                 ))
                 .await
                 .unwrap();

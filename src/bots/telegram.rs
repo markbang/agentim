@@ -256,6 +256,7 @@ async fn persist_sessions(agentim: Arc<AgentIM>, path: String, backup_count: usi
     .map_err(|e| AgentError::ChannelError(format!("Telegram persistence task failed: {}", e)))?
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_telegram_poll_once(
     agentim: Arc<AgentIM>,
     channel: Arc<TelegramBotChannel>,
