@@ -37,6 +37,7 @@ priority = 30
 
 [[repos.hooks]]
 id = "check-shebang-scripts-are-executable"
+exclude = "\\.rs$"
 priority = 30
 
 [[repos.hooks]]
