@@ -256,9 +256,33 @@ docker run -d \
 docker-compose up -d
 ```
 
-### 5. 从 Release 安装
+### 5. 一键安装 / 从 Release 安装
 
-也可以直接从发布页下载对应平台的压缩包，而不是本地编译：
+如果只是想装一个可执行文件，最简单的是直接运行安装脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | bash
+```
+
+默认会安装最新 GitHub Release 到 `~/.local/bin/agentim`。
+
+常见自定义方式：
+
+```bash
+# 指定安装目录
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_INSTALL_DIR=/usr/local/bin bash
+
+# 指定发布版本
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_VERSION=v0.2.0 bash
+```
+
+安装脚本当前支持：
+
+- Linux x86_64
+- macOS x86_64
+- macOS Apple Silicon
+
+如果你更希望手动校验并解压，也可以直接从发布页下载对应平台的压缩包：
 
 - Release 页面：`https://github.com/markbang/agentim/releases`
 - Linux / macOS: `*.tar.gz` + 对应的 `*.sha256`
@@ -267,8 +291,9 @@ docker-compose up -d
 Linux 示例：
 
 ```bash
-curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-linux-x86_64.tar.gz
-curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-linux-x86_64.tar.gz.sha256
+VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/markbang/agentim/releases/latest | awk -F/ '{print $NF}')
+curl -LO "https://github.com/markbang/agentim/releases/download/${VERSION}/agentim-linux-x86_64.tar.gz"
+curl -LO "https://github.com/markbang/agentim/releases/download/${VERSION}/agentim-linux-x86_64.tar.gz.sha256"
 shasum -a 256 -c agentim-linux-x86_64.tar.gz.sha256
 tar -xzf agentim-linux-x86_64.tar.gz
 ./agentim-linux-x86_64/agentim --help
@@ -277,8 +302,9 @@ tar -xzf agentim-linux-x86_64.tar.gz
 macOS 示例：
 
 ```bash
-curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-macos-aarch64.tar.gz
-curl -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-macos-aarch64.tar.gz.sha256
+VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/markbang/agentim/releases/latest | awk -F/ '{print $NF}')
+curl -LO "https://github.com/markbang/agentim/releases/download/${VERSION}/agentim-macos-aarch64.tar.gz"
+curl -LO "https://github.com/markbang/agentim/releases/download/${VERSION}/agentim-macos-aarch64.tar.gz.sha256"
 shasum -a 256 -c agentim-macos-aarch64.tar.gz.sha256
 tar -xzf agentim-macos-aarch64.tar.gz
 ./agentim-macos-aarch64/agentim --help
@@ -287,8 +313,9 @@ tar -xzf agentim-macos-aarch64.tar.gz
 Windows PowerShell 示例：
 
 ```powershell
-curl.exe -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-windows-x86_64.zip
-curl.exe -LO https://github.com/markbang/agentim/releases/download/v0.2.0/agentim-windows-x86_64.zip.sha256
+$version = "v0.2.0" # replace with a published release tag
+curl.exe -LO "https://github.com/markbang/agentim/releases/download/$version/agentim-windows-x86_64.zip"
+curl.exe -LO "https://github.com/markbang/agentim/releases/download/$version/agentim-windows-x86_64.zip.sha256"
 $expected = (Get-Content .\agentim-windows-x86_64.zip.sha256).Split()[0]
 $actual = (Get-FileHash .\agentim-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
 if ($expected -ne $actual) { throw "SHA256 mismatch" }

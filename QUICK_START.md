@@ -4,6 +4,12 @@
 
 生产模式只支持真实 backend：`openai` 或 `acp`。内置 `claude` / `codex` / `pi` 仅用于开发和 dry-run。
 
+### 方式 -1：先安装二进制
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | bash
+```
+
 ### 方式 0：本机 Telegram Long Polling
 
 ```bash
