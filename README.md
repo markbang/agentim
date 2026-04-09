@@ -1,6 +1,16 @@
 # AgentIM
 
-A Rust IM bridge that routes messages from multiple messaging platforms to AI agent backends via webhooks. Connect Telegram, Discord, Feishu, Slack, DingTalk, QQ, WeChat Work, or LINE to any OpenAI-compatible API.
+A Rust IM bridge that routes messages from multiple messaging platforms to agent backends via webhooks.
+
+> Transport note: Codex integration should target `codex app-server` JSON-RPC. The in-repo `src/acp.rs`
+> client currently speaks ACP `session/new|load|prompt`, which does not match the Codex app-server
+> schema verified on April 9, 2026. See [`docs/codex-app-server-transport-review.md`](docs/codex-app-server-transport-review.md).
+
+## Current state
+
+- The shipping runtime in this branch is still documented and wired primarily around an OpenAI-compatible backend.
+- A previous Codex/ACP bridge direction exists in-repo, but the transport story needs correction before it should be presented as the real Codex path.
+- The verified Codex surface is `codex app-server` JSON-RPC, not ACP `session/*`.
 
 ## Features
 
