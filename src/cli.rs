@@ -65,7 +65,7 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_secret: Option<String>,
 
-    /// Default agent type (openai). Uses any OpenAI-compatible /chat/completions backend.
+    /// Default agent type (codex by default). `codex`/`acp` start a local ACP backend in the current working directory.
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -93,19 +93,35 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_agent: Option<String>,
 
-    /// API key for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional ACP backend command override (default: `codex`)
+    #[arg(long)]
+    pub acp_command: Option<String>,
+
+    /// Optional ACP backend argument override (repeat to pass multiple args)
+    #[arg(long)]
+    pub acp_arg: Vec<String>,
+
+    /// Optional ACP backend working directory override (default: current directory)
+    #[arg(long)]
+    pub acp_cwd: Option<String>,
+
+    /// Optional ACP backend environment override as KEY=VALUE (repeatable)
+    #[arg(long)]
+    pub acp_env: Vec<String>,
+
+    /// API key for the optional OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_api_key: Option<String>,
 
-    /// Base URL for the built-in OpenAI-compatible HTTP agent backend
+    /// Base URL for the optional OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_base_url: Option<String>,
 
-    /// Model name for the built-in OpenAI-compatible HTTP agent backend
+    /// Model name for the optional OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_model: Option<String>,
 
-    /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
+    /// Retry this many times on transient 5xx/network failures from the optional OpenAI-compatible backend
     #[arg(long)]
     pub openai_max_retries: Option<usize>,
 

@@ -258,14 +258,16 @@ impl AgentIM {
         let response = if let Some(timeout_ms) = agent_timeout_ms {
             tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
-                agent.send_message(context),
+                agent.send_message_with_session(&mut session, context),
             )
             .await
             .map_err(|_| {
                 AgentError::TimeoutError(format!("agent request exceeded {}ms", timeout_ms))
             })??
         } else {
-            agent.send_message(context).await?
+            agent
+                .send_message_with_session(&mut session, context)
+                .await?
         };
 
         // Add agent response to session

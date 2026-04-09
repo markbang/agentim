@@ -88,7 +88,17 @@ impl Agent for AcpAgent {
         &self.id
     }
 
-    async fn send_message(&self, session: &mut Session, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, _messages: Vec<Message>) -> Result<String> {
+        Err(AgentError::ConfigError(
+            "ACP agents require session-aware dispatch".to_string(),
+        ))
+    }
+
+    async fn send_message_with_session(
+        &self,
+        session: &mut Session,
+        messages: Vec<Message>,
+    ) -> Result<String> {
         self.client.send_message(session, &messages).await
     }
 
@@ -798,7 +808,7 @@ mod tests {
         session.add_message(MessageRole::User, "hello".to_string());
         let first_context = session.get_context(10);
         let first = agent
-            .send_message(&mut session, first_context)
+            .send_message_with_session(&mut session, first_context)
             .await
             .unwrap();
         assert_eq!(first, "acp:acp-session-1:hello");
@@ -811,7 +821,7 @@ mod tests {
         session.add_message(MessageRole::User, "second".to_string());
         let second_context = session.get_context(10);
         let second = agent
-            .send_message(&mut session, second_context)
+            .send_message_with_session(&mut session, second_context)
             .await
             .unwrap();
         assert_eq!(second, "acp:acp-session-1:second");
@@ -848,7 +858,7 @@ mod tests {
         session.add_message(MessageRole::User, "hello".to_string());
         let first_context = session.get_context(10);
         let first = agent
-            .send_message(&mut session, first_context)
+            .send_message_with_session(&mut session, first_context)
             .await
             .unwrap();
         session.add_message(MessageRole::Assistant, first);
@@ -858,7 +868,7 @@ mod tests {
         session.add_message(MessageRole::User, "after reconnect".to_string());
         let second_context = session.get_context(10);
         let second = agent
-            .send_message(&mut session, second_context)
+            .send_message_with_session(&mut session, second_context)
             .await
             .unwrap();
 
@@ -896,7 +906,7 @@ mod tests {
         session.add_message(MessageRole::User, "hello".to_string());
         let first_context = session.get_context(10);
         let first = agent
-            .send_message(&mut session, first_context)
+            .send_message_with_session(&mut session, first_context)
             .await
             .unwrap();
         let first_remote_session = session
@@ -915,7 +925,7 @@ mod tests {
         session.add_message(MessageRole::User, "recovered".to_string());
         let second_context = session.get_context(10);
         let second = agent
-            .send_message(&mut session, second_context)
+            .send_message_with_session(&mut session, second_context)
             .await
             .unwrap();
         let second_remote_session = session

@@ -11,12 +11,14 @@ pub struct AgentConfig {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum AgentType {
+    Acp,
     OpenAI,
 }
 
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AgentType::Acp => write!(f, "acp"),
             AgentType::OpenAI => write!(f, "openai"),
         }
     }

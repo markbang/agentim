@@ -1,3 +1,4 @@
+use agentim::acp::{AcpAgent, AcpBackendConfig};
 use agentim::agent::{self, OpenAiCompatibleAgent};
 use agentim::bot_server::{self, BotServerConfig, RoutingRule};
 use agentim::bots::{
@@ -10,7 +11,7 @@ use agentim::cli::{self, Args};
 use agentim::manager::AgentIM;
 use clap::Parser;
 use serde::Deserialize;
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RuntimeRoutingRuleConfig {
@@ -32,6 +33,12 @@ struct RuntimeConfig {
     qq_agent: Option<String>,
     slack_agent: Option<String>,
     dingtalk_agent: Option<String>,
+    acp_command: Option<String>,
+    #[serde(default)]
+    acp_args: Vec<String>,
+    acp_cwd: Option<String>,
+    #[serde(default)]
+    acp_env: HashMap<String, String>,
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
@@ -79,6 +86,25 @@ fn merge_option(cli: Option<String>, config: Option<String>) -> Option<String> {
     cli.or(config)
 }
 
+fn merge_vec(cli: Vec<String>, config: Vec<String>) -> Vec<String> {
+    if cli.is_empty() {
+        config
+    } else {
+        cli
+    }
+}
+
+fn merge_map(
+    cli: HashMap<String, String>,
+    config: HashMap<String, String>,
+) -> HashMap<String, String> {
+    if cli.is_empty() {
+        config
+    } else {
+        cli
+    }
+}
+
 fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
     value.split_once(':').map_or_else(
         || {
@@ -91,12 +117,53 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
+fn parse_key_value_assignment(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
+    value.split_once('=').map_or_else(
+        || Err(anyhow::anyhow!("{flag_name} must be provided as KEY=VALUE")),
+        |(key, value)| {
+            if key.trim().is_empty() {
+                Err(anyhow::anyhow!("{flag_name} requires a non-empty KEY"))
+            } else {
+                Ok((key.to_string(), value.to_string()))
+            }
+        },
+    )
+}
+
+fn parse_env_overrides(
+    values: &[String],
+    flag_name: &str,
+) -> anyhow::Result<HashMap<String, String>> {
+    let mut env = HashMap::new();
+    for value in values {
+        let (key, value) = parse_key_value_assignment(value, flag_name)?;
+        env.insert(key, value);
+    }
+    Ok(env)
+}
+
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
+    acp_command: Option<String>,
+    acp_args: Vec<String>,
+    acp_cwd: Option<PathBuf>,
+    acp_env: HashMap<String, String>,
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
     openai_max_retries: Option<usize>,
+}
+
+fn build_acp_backend_config(options: &AgentRuntimeOptions) -> anyhow::Result<AcpBackendConfig> {
+    Ok(AcpBackendConfig {
+        command: options
+            .acp_command
+            .clone()
+            .unwrap_or_else(|| "codex".to_string()),
+        args: options.acp_args.clone(),
+        cwd: options.acp_cwd.clone().unwrap_or(std::env::current_dir()?),
+        env: options.acp_env.clone(),
+    })
 }
 
 fn build_agent(
@@ -105,6 +172,10 @@ fn build_agent(
     options: &AgentRuntimeOptions,
 ) -> anyhow::Result<Arc<dyn agent::Agent>> {
     match agent_type {
+        "acp" | "codex" => Ok(Arc::new(AcpAgent::new(
+            id.to_string(),
+            build_acp_backend_config(options)?,
+        ))),
         "openai" => {
             let api_key = options
                 .openai_api_key
@@ -124,7 +195,7 @@ fn build_agent(
             ))
         }
         other => Err(anyhow::anyhow!(
-            "Unknown agent type '{}'. Supported: openai",
+            "Unknown agent type '{}'. Supported: codex, acp, openai",
             other
         )),
     }
@@ -166,13 +237,20 @@ async fn main() -> anyhow::Result<()> {
     let agentim = AgentIM::new();
 
     let default_agent_type =
-        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "openai".to_string());
+        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "codex".to_string());
     let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
     let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
     let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
     let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
     let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
     let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
+    let acp_command = merge_option(args.acp_command, runtime_config.acp_command);
+    let acp_args = merge_vec(args.acp_arg, runtime_config.acp_args);
+    let acp_cwd = merge_option(args.acp_cwd, runtime_config.acp_cwd);
+    let acp_env = merge_map(
+        parse_env_overrides(&args.acp_env, "--acp-env")?,
+        runtime_config.acp_env,
+    );
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
     let telegram_webhook_secret_token = merge_option(
@@ -236,6 +314,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
     let agent_runtime_options = AgentRuntimeOptions {
+        acp_command,
+        acp_args,
+        acp_cwd: acp_cwd.map(PathBuf::from),
+        acp_env,
         openai_api_key,
         openai_base_url,
         openai_model,
@@ -252,6 +334,14 @@ async fn main() -> anyhow::Result<()> {
         "Default agent '{}' registered",
         default_agent_type
     ));
+    if matches!(default_agent_type.as_str(), "codex" | "acp") {
+        let backend = build_acp_backend_config(&agent_runtime_options)?;
+        cli::print_info(&format!(
+            "ACP backend bootstrap: {} (cwd: {})",
+            backend.describe(),
+            backend.cwd.display()
+        ));
+    }
     if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
         cli::print_info(&format!(
             "OpenAI-compatible backend retries set to {}",
