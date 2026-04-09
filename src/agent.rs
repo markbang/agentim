@@ -1,6 +1,6 @@
 use crate::config::AgentType;
 use crate::error::{AgentError, Result};
-use crate::session::Message;
+use crate::session::{Message, Session};
 use async_trait::async_trait;
 
 fn openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
@@ -21,6 +21,14 @@ pub trait Agent: Send + Sync {
     fn id(&self) -> &str;
 
     async fn send_message(&self, messages: Vec<Message>) -> Result<String>;
+    async fn send_message_with_session(
+        &self,
+        session: &mut Session,
+        messages: Vec<Message>,
+    ) -> Result<String> {
+        let _ = session;
+        self.send_message(messages).await
+    }
     async fn health_check(&self) -> Result<()>;
 }
 
