@@ -1,4 +1,4 @@
-use agentim::agent::{self, OpenAiCompatibleAgent};
+use agentim::agent::{self};
 use agentim::bot_server::{self, BotServerConfig, RoutingRule};
 use agentim::bots::{
     DingTalkBotChannel, DiscordBotChannel, FeishuBotChannel, QQBotChannel, SlackBotChannel,
@@ -7,10 +7,11 @@ use agentim::bots::{
 };
 use agentim::channel::Channel;
 use agentim::cli::{self, Args};
+use agentim::codex::{CodexAgent, CodexBackendConfig};
 use agentim::manager::AgentIM;
 use clap::Parser;
 use serde::Deserialize;
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RuntimeRoutingRuleConfig {
@@ -32,10 +33,12 @@ struct RuntimeConfig {
     qq_agent: Option<String>,
     slack_agent: Option<String>,
     dingtalk_agent: Option<String>,
-    openai_api_key: Option<String>,
-    openai_base_url: Option<String>,
-    openai_model: Option<String>,
-    openai_max_retries: Option<usize>,
+    codex_command: Option<String>,
+    #[serde(default)]
+    codex_args: Vec<String>,
+    codex_cwd: Option<String>,
+    #[serde(default)]
+    codex_env: HashMap<String, String>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
@@ -79,6 +82,25 @@ fn merge_option(cli: Option<String>, config: Option<String>) -> Option<String> {
     cli.or(config)
 }
 
+fn merge_vec(cli: Vec<String>, config: Vec<String>) -> Vec<String> {
+    if cli.is_empty() {
+        config
+    } else {
+        cli
+    }
+}
+
+fn merge_map(
+    cli: HashMap<String, String>,
+    config: HashMap<String, String>,
+) -> HashMap<String, String> {
+    if cli.is_empty() {
+        config
+    } else {
+        cli
+    }
+}
+
 fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
     value.split_once(':').map_or_else(
         || {
@@ -91,12 +113,56 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
+fn parse_key_value_assignment(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
+    value.split_once('=').map_or_else(
+        || Err(anyhow::anyhow!("{flag_name} must be provided as KEY=VALUE")),
+        |(key, value)| {
+            if key.trim().is_empty() {
+                Err(anyhow::anyhow!("{flag_name} requires a non-empty KEY"))
+            } else {
+                Ok((key.to_string(), value.to_string()))
+            }
+        },
+    )
+}
+
+fn parse_env_overrides(
+    values: &[String],
+    flag_name: &str,
+) -> anyhow::Result<HashMap<String, String>> {
+    let mut env = HashMap::new();
+    for value in values {
+        let (key, value) = parse_key_value_assignment(value, flag_name)?;
+        env.insert(key, value);
+    }
+    Ok(env)
+}
+
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
-    openai_api_key: Option<String>,
-    openai_base_url: Option<String>,
-    openai_model: Option<String>,
-    openai_max_retries: Option<usize>,
+    codex_command: Option<String>,
+    codex_args: Vec<String>,
+    codex_cwd: Option<PathBuf>,
+    codex_env: HashMap<String, String>,
+}
+
+fn build_codex_backend_config(options: &AgentRuntimeOptions) -> anyhow::Result<CodexBackendConfig> {
+    Ok(CodexBackendConfig {
+        command: options
+            .codex_command
+            .clone()
+            .unwrap_or_else(|| "codex".to_string()),
+        args: if options.codex_args.is_empty() {
+            vec!["app-server".to_string()]
+        } else {
+            options.codex_args.clone()
+        },
+        cwd: options
+            .codex_cwd
+            .clone()
+            .unwrap_or(std::env::current_dir()?),
+        env: options.codex_env.clone(),
+    })
 }
 
 fn build_agent(
@@ -105,26 +171,12 @@ fn build_agent(
     options: &AgentRuntimeOptions,
 ) -> anyhow::Result<Arc<dyn agent::Agent>> {
     match agent_type {
-        "openai" => {
-            let api_key = options
-                .openai_api_key
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("openai agent requires --openai-api-key"))?;
-            let base_url = options
-                .openai_base_url
-                .clone()
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-            let model = options
-                .openai_model
-                .clone()
-                .unwrap_or_else(|| "gpt-4o-mini".to_string());
-            Ok(Arc::new(
-                OpenAiCompatibleAgent::new(id.to_string(), api_key, base_url, model)
-                    .with_max_retries(options.openai_max_retries.unwrap_or(0)),
-            ))
-        }
+        "codex" => Ok(Arc::new(CodexAgent::new(
+            id.to_string(),
+            build_codex_backend_config(options)?,
+        ))),
         other => Err(anyhow::anyhow!(
-            "Unknown agent type '{}'. Supported: openai",
+            "Unknown agent type '{}'. Supported: codex",
             other
         )),
     }
@@ -166,25 +218,26 @@ async fn main() -> anyhow::Result<()> {
     let agentim = AgentIM::new();
 
     let default_agent_type =
-        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "openai".to_string());
+        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "codex".to_string());
     let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
     let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
     let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
     let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
     let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
     let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
+    let codex_command = merge_option(args.codex_command, runtime_config.codex_command);
+    let codex_args = merge_vec(args.codex_args, runtime_config.codex_args);
+    let codex_cwd = merge_option(args.codex_cwd, runtime_config.codex_cwd);
+    let codex_env = merge_map(
+        parse_env_overrides(&args.codex_env, "--codex-env")?,
+        runtime_config.codex_env,
+    );
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
     let telegram_webhook_secret_token = merge_option(
         args.telegram_webhook_secret_token,
         runtime_config.telegram_webhook_secret_token,
     );
-    let openai_api_key = merge_option(args.openai_api_key, runtime_config.openai_api_key);
-    let openai_base_url = merge_option(args.openai_base_url, runtime_config.openai_base_url);
-    let openai_model = merge_option(args.openai_model, runtime_config.openai_model);
-    let openai_max_retries = args
-        .openai_max_retries
-        .or(runtime_config.openai_max_retries);
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -236,10 +289,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
     let agent_runtime_options = AgentRuntimeOptions {
-        openai_api_key,
-        openai_base_url,
-        openai_model,
-        openai_max_retries,
+        codex_command,
+        codex_args,
+        codex_cwd: codex_cwd.map(PathBuf::from),
+        codex_env,
     };
 
     register_agent_variant(
@@ -252,10 +305,12 @@ async fn main() -> anyhow::Result<()> {
         "Default agent '{}' registered",
         default_agent_type
     ));
-    if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
+    if default_agent_type == "codex" {
+        let backend = build_codex_backend_config(&agent_runtime_options)?;
         cli::print_info(&format!(
-            "OpenAI-compatible backend retries set to {}",
-            openai_max_retries
+            "Codex backend bootstrap: {} (cwd: {})",
+            backend.describe(),
+            backend.cwd.display()
         ));
     }
 

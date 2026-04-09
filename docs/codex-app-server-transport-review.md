@@ -67,30 +67,41 @@ That is a protocol-level mismatch, not a naming-only issue.
 
 The repository should **not** present current Codex integration as “ACP-compatible” unless a real Codex transport that implements `session/new|load|prompt` is verified.
 
-Today, the evidence supports this correction:
+The evidence supports this correction:
 
 - **Codex bridge target:** `codex app-server` JSON-RPC
-- **Not yet validated as Codex target:** `src/acp.rs` ACP session transport
+- **Not validated as Codex target:** `src/acp.rs` ACP session transport
 
-## Recommended product/documentation correction
+## Current implementation status
 
-Until runtime wiring is rewritten against the Codex app-server protocol:
+AgentIM now ships the local Codex bridge through `src/codex.rs`, which speaks the verified
+app-server thread/turn JSON-RPC surface:
 
-1. Do **not** describe `src/acp.rs` as the confirmed Codex bridge path.
-2. Do **not** promise “Telegram -> Codex via ACP session/new” behavior.
-3. Describe the current blocker explicitly: Codex transport is app-server JSON-RPC, while the in-repo ACP client expects ACP session methods.
+- `initialize`
+- `thread/start`
+- `thread/resume`
+- `turn/start`
+- streamed `item/agentMessage/delta`
+- `turn/completed`
+
+The legacy `src/acp.rs` module remains in the tree for ACP experiments/tests only and should not be
+described as the real Codex path.
 
 ## Naming / UX fallout
 
-If the bridge is rewritten to the real Codex surface, the current ACP naming should be reconsidered:
+The bridge now uses Codex-oriented user-facing naming:
 
-- `--acp-command` likely becomes `--codex-command` or `--app-server-command`
-- `--acp-arg` likely becomes `--codex-arg` / `--app-server-arg`
-- `--acp-cwd` likely becomes `--codex-cwd` / `--app-server-cwd`
-- `--acp-env` likely becomes `--codex-env` / `--app-server-env`
+- `--codex-command`
+- `--codex-arg`
+- `--codex-cwd`
+- `--codex-env`
 
-If compatibility with non-Codex ACP agents is still desired, keep ACP and Codex as separate transports rather than overloading one set of flags for both.
+If compatibility with non-Codex ACP agents is still desired in the future, keep ACP and Codex as
+separate transports rather than overloading the Codex app-server path with ACP semantics.
 
-## Minimal-correct next step
+## Verified product direction
 
-Implement a dedicated Codex transport around app-server JSON-RPC (`thread/start`, `turn/start`, related notifications), then layer Telegram bridge defaults and CLI/docs on top of that verified transport.
+- The default startup path should assume a local Codex backend.
+- Telegram-only onboarding should not require `OPENAI_API_KEY`.
+- Any future non-Codex ACP support should remain a separate transport instead of being conflated with
+  the Codex app-server bridge.

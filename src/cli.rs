@@ -65,7 +65,7 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_secret: Option<String>,
 
-    /// Default agent type (openai). Uses any OpenAI-compatible /chat/completions backend.
+    /// Default agent type (codex by default). `codex` talks to a local `codex app-server` backend.
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -93,21 +93,21 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_agent: Option<String>,
 
-    /// API key for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional Codex app-server command override (default: `codex`)
     #[arg(long)]
-    pub openai_api_key: Option<String>,
+    pub codex_command: Option<String>,
 
-    /// Base URL for the built-in OpenAI-compatible HTTP agent backend
-    #[arg(long)]
-    pub openai_base_url: Option<String>,
+    /// Optional extra argument passed to the Codex backend command; may be repeated
+    #[arg(long = "codex-arg")]
+    pub codex_args: Vec<String>,
 
-    /// Model name for the built-in OpenAI-compatible HTTP agent backend
+    /// Optional working directory used for the Codex backend process and threads (default: current directory)
     #[arg(long)]
-    pub openai_model: Option<String>,
+    pub codex_cwd: Option<String>,
 
-    /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
-    #[arg(long)]
-    pub openai_max_retries: Option<usize>,
+    /// Optional environment variable passed to the Codex backend as KEY=VALUE; may be repeated
+    #[arg(long = "codex-env")]
+    pub codex_env: Vec<String>,
 
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]

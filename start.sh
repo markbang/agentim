@@ -16,10 +16,22 @@ args=()
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
 [[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
-[[ -n "${OPENAI_API_KEY:-}" ]] && args+=(--openai-api-key "$OPENAI_API_KEY")
-[[ -n "${OPENAI_BASE_URL:-}" ]] && args+=(--openai-base-url "$OPENAI_BASE_URL")
-[[ -n "${OPENAI_MODEL:-}" ]] && args+=(--openai-model "$OPENAI_MODEL")
-[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && args+=(--openai-max-retries "$OPENAI_MAX_RETRIES")
+[[ -n "${CODEX_COMMAND:-}" ]] && args+=(--codex-command "$CODEX_COMMAND")
+[[ -n "${CODEX_CWD:-}" ]] && args+=(--codex-cwd "$CODEX_CWD")
+if [[ -n "${CODEX_ARGS:-}" ]]; then
+  # shellcheck disable=SC2206
+  codex_args=($CODEX_ARGS)
+  for arg in "${codex_args[@]}"; do
+    args+=(--codex-arg "$arg")
+  done
+fi
+if [[ -n "${CODEX_ENV_VARS:-}" ]]; then
+  # shellcheck disable=SC2206
+  codex_env_vars=($CODEX_ENV_VARS)
+  for item in "${codex_env_vars[@]}"; do
+    args+=(--codex-env "$item")
+  done
+fi
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
@@ -65,11 +77,11 @@ echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
-echo "Agent:   ${AGENT:-from config or binary default (openai)}"
+echo "Agent:   ${AGENT:-from config or binary default (codex)}"
 echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
-[[ -n "${OPENAI_BASE_URL:-}" ]] && echo "OpenAI base URL: ${OPENAI_BASE_URL}"
-[[ -n "${OPENAI_MODEL:-}" ]] && echo "OpenAI model: ${OPENAI_MODEL}"
-[[ -n "${OPENAI_MAX_RETRIES:-}" ]] && echo "OpenAI retries: ${OPENAI_MAX_RETRIES}"
+[[ -n "${CODEX_COMMAND:-}" ]] && echo "Codex command: ${CODEX_COMMAND}"
+[[ -n "${CODEX_CWD:-}" ]] && echo "Codex cwd: ${CODEX_CWD}"
+[[ -n "${CODEX_ARGS:-}" ]] && echo "Codex args: ${CODEX_ARGS}"
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"

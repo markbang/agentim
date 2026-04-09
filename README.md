@@ -1,21 +1,17 @@
 # AgentIM
 
-A Rust IM bridge that routes messages from multiple messaging platforms to agent backends via webhooks.
+A Rust IM bridge that routes messages from multiple messaging platforms to local agent backends via webhooks.
 
-> Transport note: Codex integration should target `codex app-server` JSON-RPC. The in-repo `src/acp.rs`
-> client currently speaks ACP `session/new|load|prompt`, which does not match the Codex app-server
-> schema verified on April 9, 2026. See [`docs/codex-app-server-transport-review.md`](docs/codex-app-server-transport-review.md).
-
-## Current state
-
-- The shipping runtime in this branch is still documented and wired primarily around an OpenAI-compatible backend.
-- A previous Codex/ACP bridge direction exists in-repo, but the transport story needs correction before it should be presented as the real Codex path.
-- The verified Codex surface is `codex app-server` JSON-RPC, not ACP `session/*`.
+> Codex bridge note: AgentIM now targets `codex app-server` JSON-RPC for local Codex integration.
+> The legacy `src/acp.rs` client still exists for ACP transport experiments/tests, but the verified
+> Codex runtime surface is `thread/start`, `thread/resume`, and `turn/start`. See
+> [`docs/codex-app-server-transport-review.md`](docs/codex-app-server-transport-review.md).
 
 ## Features
 
 - **8 IM platforms** with real webhook handlers and message delivery
-- **OpenAI-compatible agent backend** - works with OpenAI, Anthropic (via proxy), Ollama, vLLM, or any `/chat/completions` API
+- **Local Codex backend by default** via `codex app-server`
+- **Advanced local backend overrides** for command, args, cwd, and env
 - **Per-platform agent routing** with priority-based routing rules
 - **Session management** with auto-creation, history trimming, and context windowing
 - **Security** - shared secret auth, HMAC-SHA256 signed webhooks, platform-native signature verification (Telegram, Discord ed25519, Feishu, Slack, DingTalk, LINE)
@@ -41,7 +37,7 @@ A Rust IM bridge that routes messages from multiple messaging platforms to agent
 ### Prerequisites
 
 - Rust 1.70+ (for building from source)
-- An OpenAI-compatible API key
+- Local `codex` CLI installed and authenticated
 
 ### Run directly
 
@@ -50,14 +46,13 @@ cargo build --release
 
 # Minimal: just Telegram
 ./target/release/agentim \
-  --openai-api-key YOUR_API_KEY \
   --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 
-# Multiple platforms
+# Override the backend command if needed
 ./target/release/agentim \
-  --openai-api-key YOUR_API_KEY \
-  --openai-base-url https://api.openai.com/v1 \
-  --openai-model gpt-4o-mini \
+  --codex-command codex \
+  --codex-arg app-server \
+  --codex-cwd /path/to/worktree \
   --telegram-token YOUR_TELEGRAM_TOKEN \
   --discord-token YOUR_DISCORD_TOKEN \
   --slack-token xoxb-YOUR-SLACK-TOKEN \
@@ -84,7 +79,6 @@ docker compose up -d
 ### Run with environment variables
 
 ```bash
-export OPENAI_API_KEY=your-key
 export TELEGRAM_TOKEN=your-telegram-token
 ./start.sh
 ```
@@ -96,11 +90,11 @@ AgentIM supports three configuration methods (CLI flags take precedence over con
 ### CLI Flags
 
 ```
---agent openai              Default agent type
---openai-api-key KEY        API key for the agent backend
---openai-base-url URL       Base URL (default: https://api.openai.com/v1)
---openai-model MODEL        Model name (default: gpt-4o-mini)
---openai-max-retries N      Retry on transient 5xx failures
+--agent codex               Default agent type
+--codex-command CMD         Backend command (default: codex)
+--codex-arg ARG             Repeat to pass backend args (default path uses app-server)
+--codex-cwd PATH            Backend working directory (default: current directory)
+--codex-env KEY=VALUE       Repeat to pass backend env vars
 
 --telegram-token TOKEN      Enable Telegram bot
 --discord-token TOKEN       Enable Discord bot
@@ -131,13 +125,13 @@ Route different users or channels to different agent configurations:
       "channel": "telegram",
       "user_id": "12345",
       "priority": 10,
-      "agent": "openai"
+      "agent": "codex"
     },
     {
       "channel": "discord",
       "reply_target_prefix": "support-",
       "priority": 1,
-      "agent": "openai"
+      "agent": "codex"
     }
   ]
 }
@@ -206,9 +200,9 @@ AgentIM Manager (manager.rs)
     |-- Find or create session
     |-- Build context window from history
     v
-Agent Backend (agent.rs)
-    |-- OpenAI-compatible /chat/completions call
-    |-- Retry on transient failures
+Codex app-server Backend (codex.rs)
+    |-- thread/start or thread/resume
+    |-- turn/start + streamed agentMessage deltas
     v
 Channel Reply (bots/*.rs)
     |-- Platform-specific message delivery

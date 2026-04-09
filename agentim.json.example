@@ -1,21 +1,20 @@
 {
-  "agent": "openai",
-  "openai_api_key": "YOUR_OPENAI_API_KEY",
-  "openai_base_url": "https://api.openai.com/v1",
-  "openai_model": "gpt-4o-mini",
-  "openai_max_retries": 1,
+  "agent": "codex",
+  "codex_command": "codex",
+  "codex_args": ["app-server"],
+  "codex_cwd": ".",
   "routing_rules": [
     {
       "channel": "telegram",
       "user_id": "vip-user",
       "priority": 10,
-      "agent": "openai"
+      "agent": "codex"
     },
     {
       "channel": "discord",
       "reply_target_prefix": "review-",
       "priority": 1,
-      "agent": "openai"
+      "agent": "codex"
     }
   ],
   "telegram_token": "YOUR_TELEGRAM_TOKEN",

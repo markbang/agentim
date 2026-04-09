@@ -2049,28 +2049,16 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
 }
 
 #[test]
-fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
+fn usability_reviewer_dry_run_accepts_codex_default_agent_config() {
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args([
-            "--dry-run",
-            "--agent",
-            "openai",
-            "--openai-api-key",
-            "test-key",
-            "--openai-base-url",
-            "http://127.0.0.1:18080/v1",
-            "--openai-model",
-            "gpt-4o-mini",
-            "--openai-max-retries",
-            "1",
-        ])
+        .args(["--dry-run", "--agent", "codex"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'openai' registered"));
-    assert!(stdout.contains("OpenAI-compatible backend retries set to 1"));
+    assert!(stdout.contains("Default agent 'codex' registered"));
+    assert!(stdout.contains("Codex backend bootstrap: codex app-server"));
     assert!(stdout.contains("Dry run complete"));
 }
 
@@ -2080,10 +2068,6 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
         .args([
             "--dry-run",
-            "--agent",
-            "openai",
-            "--openai-api-key",
-            "test-key",
             "--state-file",
             &state_file,
             "--webhook-secret",
@@ -2101,11 +2085,10 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
 fn usability_reviewer_loads_runtime_config_file() {
     let config_path = temp_state_file();
     let config = r#"{
-  "agent": "openai",
-  "openai_api_key": "test-key",
+  "agent": "codex",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "openai"},
-    {"channel": "discord", "reply_target_prefix": "review-", "agent": "openai"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "codex"},
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
   ],
   "state_file": ".agentim/test-sessions.json",
   "state_backup_count": 2,
@@ -2129,7 +2112,8 @@ fn usability_reviewer_loads_runtime_config_file() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'openai' registered"));
+    assert!(stdout.contains("Default agent 'codex' registered"));
+    assert!(stdout.contains("Codex backend bootstrap: codex app-server"));
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
@@ -2157,10 +2141,6 @@ fn usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credent
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
         .args([
             "--dry-run",
-            "--agent",
-            "openai",
-            "--openai-api-key",
-            "test-key",
             "--telegram-token",
             "dummy-telegram-token",
             "--discord-token",
