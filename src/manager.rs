@@ -1,73 +1,14 @@
 use crate::agent::Agent;
 use crate::channel::Channel;
 use crate::error::{AgentError, Result};
-use crate::session::{MessageRole, Session};
-use dashmap::{mapref::entry::Entry, DashMap};
-use std::sync::{Arc, Mutex};
-use tokio::sync::Mutex as AsyncMutex;
-
-struct SessionEntry {
-    session: Mutex<Session>,
-    processing: AsyncMutex<()>,
-}
-
-impl SessionEntry {
-    fn new(session: Session) -> Self {
-        Self {
-            session: Mutex::new(session),
-            processing: AsyncMutex::new(()),
-        }
-    }
-
-    fn snapshot(&self) -> Result<Session> {
-        Ok(self
-            .session
-            .lock()
-            .map_err(|_| AgentError::Unknown("session mutex poisoned".to_string()))?
-            .clone())
-    }
-
-    fn replace(&self, session: Session) -> Result<()> {
-        *self
-            .session
-            .lock()
-            .map_err(|_| AgentError::Unknown("session mutex poisoned".to_string()))? = session;
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct SessionLookupKey {
-    agent_id: String,
-    channel_id: String,
-    user_id: String,
-}
-
-impl SessionLookupKey {
-    fn new(agent_id: &str, channel_id: &str, user_id: &str) -> Self {
-        Self {
-            agent_id: agent_id.to_string(),
-            channel_id: channel_id.to_string(),
-            user_id: user_id.to_string(),
-        }
-    }
-
-    fn from_session(session: &Session) -> Self {
-        Self::new(&session.agent_id, &session.channel_id, &session.user_id)
-    }
-}
-
-struct SessionMessageResult {
-    response: String,
-    channel_id: String,
-    reply_target: String,
-}
+use crate::session::Session;
+use dashmap::DashMap;
+use std::sync::Arc;
 
 pub struct AgentIM {
     agents: Arc<DashMap<String, Arc<dyn Agent>>>,
     channels: Arc<DashMap<String, Arc<dyn Channel>>>,
-    sessions: Arc<DashMap<String, Arc<SessionEntry>>>,
-    session_index: Arc<DashMap<SessionLookupKey, String>>,
+    sessions: Arc<DashMap<String, Session>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -93,7 +34,6 @@ impl AgentIM {
             agents: Arc::new(DashMap::new()),
             channels: Arc::new(DashMap::new()),
             sessions: Arc::new(DashMap::new()),
-            session_index: Arc::new(DashMap::new()),
         }
     }
 
@@ -121,68 +61,38 @@ impl AgentIM {
             .ok_or_else(|| AgentError::ChannelNotFound(id.to_string()))
     }
 
-    fn get_session_entry(&self, id: &str) -> Result<Arc<SessionEntry>> {
-        self.sessions
-            .get(id)
-            .map(|entry| entry.value().clone())
-            .ok_or_else(|| AgentError::SessionNotFound(id.to_string()))
-    }
-
-    fn insert_session_entry(&self, session: Session) -> String {
-        let session_id = session.id.clone();
-        let lookup_key = SessionLookupKey::from_session(&session);
-
-        if let Some(previous_id) = self.session_index.insert(lookup_key, session_id.clone()) {
-            if previous_id != session_id {
-                self.sessions.remove(&previous_id);
-            }
-        }
-
-        self.sessions
-            .insert(session_id.clone(), Arc::new(SessionEntry::new(session)));
-        session_id
-    }
-
     pub fn create_session(
         &self,
         agent_id: String,
         channel_id: String,
         user_id: String,
     ) -> Result<String> {
-        self.find_or_create_session(&agent_id, &channel_id, &user_id)
+        // Verify agent and channel exist
+        self.get_agent(&agent_id)?;
+        self.get_channel(&channel_id)?;
+
+        let session = Session::new(agent_id, channel_id, user_id);
+        let session_id = session.id.clone();
+        self.sessions.insert(session_id.clone(), session);
+        Ok(session_id)
     }
 
     pub fn get_session(&self, id: &str) -> Result<Session> {
-        self.get_session_entry(id)?.snapshot()
+        self.sessions
+            .get(id)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| AgentError::SessionNotFound(id.to_string()))
     }
 
     pub fn update_session(&self, id: &str, session: Session) -> Result<()> {
-        let new_key = SessionLookupKey::from_session(&session);
-
-        if let Some(existing) = self.sessions.get(id) {
-            let entry = existing.value().clone();
-            let old_key = entry
-                .snapshot()
-                .map(|snapshot| SessionLookupKey::from_session(&snapshot))?;
-            entry.replace(session.clone())?;
-
-            if old_key != new_key {
-                self.session_index.remove(&old_key);
-            }
-            self.session_index.insert(new_key, id.to_string());
-            return Ok(());
-        }
-
-        self.session_index.insert(new_key, id.to_string());
-        self.sessions
-            .insert(id.to_string(), Arc::new(SessionEntry::new(session)));
+        self.sessions.insert(id.to_string(), session);
         Ok(())
     }
 
     pub fn list_sessions(&self) -> Vec<Session> {
         self.sessions
             .iter()
-            .filter_map(|entry| entry.value().snapshot().ok())
+            .map(|entry| entry.value().clone())
             .collect()
     }
 
@@ -262,7 +172,7 @@ impl AgentIM {
         }
 
         for session in sessions {
-            self.insert_session_entry(session);
+            self.sessions.insert(session.id.clone(), session);
         }
 
         Ok(count)
@@ -308,58 +218,6 @@ impl AgentIM {
             .unwrap_or_else(|| AgentError::Unknown("No valid session snapshot found".to_string())))
     }
 
-    async fn process_session_message(
-        &self,
-        session_id: &str,
-        reply_target: Option<&str>,
-        user_message: String,
-        options: MessageHandlingOptions,
-    ) -> Result<SessionMessageResult> {
-        let entry = self.get_session_entry(session_id)?;
-        let _processing_guard = entry.processing.lock().await;
-
-        let mut session = entry.snapshot()?;
-        if let Some(reply_target) = reply_target {
-            session
-                .metadata
-                .insert("reply_target".to_string(), reply_target.to_string());
-        }
-
-        let agent = self.get_agent(&session.agent_id)?;
-        session.add_message(MessageRole::User, user_message);
-        let context = session.get_context(options.context_message_limit);
-
-        let response = if let Some(timeout_ms) = options.agent_timeout_ms {
-            tokio::time::timeout(
-                std::time::Duration::from_millis(timeout_ms),
-                agent.send_message(&mut session, context),
-            )
-            .await
-            .map_err(|_| {
-                AgentError::TimeoutError(format!("agent request exceeded {}ms", timeout_ms))
-            })??
-        } else {
-            agent.send_message(&mut session, context).await?
-        };
-
-        session.add_message(MessageRole::Assistant, response.clone());
-        if let Some(max_messages) = options.max_messages {
-            session.trim_history(max_messages);
-        }
-
-        let result = SessionMessageResult {
-            channel_id: session.channel_id.clone(),
-            reply_target: session
-                .metadata
-                .get("reply_target")
-                .cloned()
-                .unwrap_or_else(|| session.user_id.clone()),
-            response,
-        };
-        entry.replace(session)?;
-        Ok(result)
-    }
-
     pub async fn send_to_agent(&self, session_id: &str, user_message: String) -> Result<String> {
         self.send_to_agent_with_context_limit(session_id, user_message, 10)
             .await
@@ -387,19 +245,36 @@ impl AgentIM {
         context_message_limit: usize,
         agent_timeout_ms: Option<u64>,
     ) -> Result<String> {
-        Ok(self
-            .process_session_message(
-                session_id,
-                None,
-                user_message,
-                MessageHandlingOptions {
-                    max_messages: None,
-                    context_message_limit,
-                    agent_timeout_ms,
-                },
+        let mut session = self.get_session(session_id)?;
+        let agent = self.get_agent(&session.agent_id)?;
+
+        // Add user message to session
+        session.add_message(crate::session::MessageRole::User, user_message);
+
+        // Get context for agent
+        let context = session.get_context(context_message_limit);
+
+        // Send to agent
+        let response = if let Some(timeout_ms) = agent_timeout_ms {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                agent.send_message(context),
             )
-            .await?
-            .response)
+            .await
+            .map_err(|_| {
+                AgentError::TimeoutError(format!("agent request exceeded {}ms", timeout_ms))
+            })??
+        } else {
+            agent.send_message(context).await?
+        };
+
+        // Add agent response to session
+        session.add_message(crate::session::MessageRole::Assistant, response.clone());
+
+        // Update session
+        self.update_session(session_id, session)?;
+
+        Ok(response)
     }
 
     pub async fn send_to_channel(&self, session_id: &str, message: String) -> Result<()> {
@@ -416,10 +291,9 @@ impl AgentIM {
     }
 
     pub fn trim_session_history(&self, session_id: &str, max_messages: usize) -> Result<()> {
-        let entry = self.get_session_entry(session_id)?;
-        let mut session = entry.snapshot()?;
+        let mut session = self.get_session(session_id)?;
         session.trim_history(max_messages);
-        entry.replace(session)
+        self.update_session(session_id, session)
     }
 
     pub async fn handle_incoming_message(
@@ -430,13 +304,13 @@ impl AgentIM {
         reply_target: Option<&str>,
         user_message: String,
     ) -> Result<String> {
-        self.handle_incoming_message_with_options(
+        self.handle_incoming_message_with_limit(
             agent_id,
             channel_id,
             user_id,
             reply_target,
             user_message,
-            MessageHandlingOptions::default(),
+            None,
         )
         .await
     }
@@ -450,16 +324,14 @@ impl AgentIM {
         user_message: String,
         max_messages: Option<usize>,
     ) -> Result<String> {
-        self.handle_incoming_message_with_options(
+        self.handle_incoming_message_with_limits(
             agent_id,
             channel_id,
             user_id,
             reply_target,
             user_message,
-            MessageHandlingOptions {
-                max_messages,
-                ..MessageHandlingOptions::default()
-            },
+            max_messages,
+            10,
         )
         .await
     }
@@ -473,16 +345,80 @@ impl AgentIM {
         user_message: String,
         options: MessageHandlingOptions,
     ) -> Result<String> {
+        self.handle_incoming_message_with_runtime_limits(
+            agent_id,
+            channel_id,
+            user_id,
+            reply_target,
+            user_message,
+            options.max_messages,
+            options.context_message_limit,
+            options.agent_timeout_ms,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn handle_incoming_message_with_limits(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+        max_messages: Option<usize>,
+        context_message_limit: usize,
+    ) -> Result<String> {
+        self.handle_incoming_message_with_runtime_limits(
+            agent_id,
+            channel_id,
+            user_id,
+            reply_target,
+            user_message,
+            max_messages,
+            context_message_limit,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn handle_incoming_message_with_runtime_limits(
+        &self,
+        agent_id: &str,
+        channel_id: &str,
+        user_id: &str,
+        reply_target: Option<&str>,
+        user_message: String,
+        max_messages: Option<usize>,
+        context_message_limit: usize,
+        agent_timeout_ms: Option<u64>,
+    ) -> Result<String> {
         let session_id = self.find_or_create_session(agent_id, channel_id, user_id)?;
-        let result = self
-            .process_session_message(&session_id, reply_target, user_message, options)
+
+        if let Some(reply_target) = reply_target {
+            let mut session = self.get_session(&session_id)?;
+            session
+                .metadata
+                .insert("reply_target".to_string(), reply_target.to_string());
+            self.update_session(&session_id, session)?;
+        }
+
+        let response = self
+            .send_to_agent_with_context_limit_and_timeout(
+                &session_id,
+                user_message,
+                context_message_limit,
+                agent_timeout_ms,
+            )
             .await?;
 
-        let channel = self.get_channel(&result.channel_id)?;
-        channel
-            .send_message(&result.reply_target, &result.response)
-            .await?;
-        Ok(result.response)
+        if let Some(max_messages) = max_messages {
+            self.trim_session_history(&session_id, max_messages)?;
+        }
+
+        self.send_to_channel(&session_id, response.clone()).await?;
+        Ok(response)
     }
 
     pub async fn health_check(&self) -> Result<()> {
@@ -503,35 +439,47 @@ impl AgentIM {
         channel_id: &str,
         user_id: &str,
     ) -> Result<String> {
-        self.get_agent(agent_id)?;
-        self.get_channel(channel_id)?;
-
-        let lookup_key = SessionLookupKey::new(agent_id, channel_id, user_id);
-        match self.session_index.entry(lookup_key) {
-            Entry::Occupied(existing) => Ok(existing.get().clone()),
-            Entry::Vacant(vacant) => {
-                let session = Session::new(
-                    agent_id.to_string(),
-                    channel_id.to_string(),
-                    user_id.to_string(),
-                );
-                let session_id = session.id.clone();
-                self.sessions
-                    .insert(session_id.clone(), Arc::new(SessionEntry::new(session)));
-                vacant.insert(session_id.clone());
-                Ok(session_id)
+        // Look for existing session
+        for session_ref in self.sessions.iter() {
+            let session = session_ref.value();
+            if session.agent_id == agent_id
+                && session.channel_id == channel_id
+                && session.user_id == user_id
+            {
+                return Ok(session.id.clone());
             }
         }
+
+        // Create new session if not found
+        self.create_session(
+            agent_id.to_string(),
+            channel_id.to_string(),
+            user_id.to_string(),
+        )
     }
 
     pub fn delete_session(&self, id: &str) -> Result<()> {
-        let (_, entry) = self
-            .sessions
+        self.sessions
             .remove(id)
             .ok_or_else(|| AgentError::SessionNotFound(id.to_string()))?;
-        let lookup_key = SessionLookupKey::from_session(&entry.snapshot()?);
-        self.session_index.remove(&lookup_key);
         Ok(())
+    }
+
+    /// Remove sessions that have not been updated for `max_idle_seconds`.
+    /// Returns the number of sessions removed.
+    pub fn cleanup_stale_sessions(&self, max_idle_seconds: u64) -> usize {
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(max_idle_seconds as i64);
+        let stale_ids: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|entry| entry.value().updated_at < cutoff)
+            .map(|entry| entry.key().clone())
+            .collect();
+        let count = stale_ids.len();
+        for id in stale_ids {
+            self.sessions.remove(&id);
+        }
+        count
     }
 }
 
@@ -547,7 +495,6 @@ impl Clone for AgentIM {
             agents: self.agents.clone(),
             channels: self.channels.clone(),
             sessions: self.sessions.clone(),
-            session_index: self.session_index.clone(),
         }
     }
 }
@@ -555,74 +502,36 @@ impl Clone for AgentIM {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::{Agent, ClaudeAgent};
-    use crate::channel::{Channel, ChannelMessage, TelegramChannel};
+    use crate::agent::Agent;
+    use crate::channel::{Channel, ChannelMessage};
     use crate::config::{AgentType, ChannelType};
-    use crate::session::{Message, Session};
+    use crate::session::Message;
     use async_trait::async_trait;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn test_agentim_creation() {
-        let agentim = AgentIM::new();
-        assert_eq!(agentim.list_agents().len(), 0);
-        assert_eq!(agentim.list_channels().len(), 0);
+    struct MockAgent {
+        mock_id: String,
     }
 
-    #[test]
-    fn test_register_agent() {
-        let agentim = AgentIM::new();
-        let agent = Arc::new(ClaudeAgent::new("claude1".to_string(), None));
-        agentim
-            .register_agent("claude1".to_string(), agent)
-            .unwrap();
-        assert_eq!(agentim.list_agents().len(), 1);
+    impl MockAgent {
+        fn new(id: &str) -> Self {
+            Self {
+                mock_id: id.to_string(),
+            }
+        }
     }
-
-    #[test]
-    fn test_create_session() {
-        let agentim = AgentIM::new();
-        let agent = Arc::new(ClaudeAgent::new("claude1".to_string(), None));
-        let channel = Arc::new(TelegramChannel::new("tg1".to_string()));
-
-        agentim
-            .register_agent("claude1".to_string(), agent)
-            .unwrap();
-        agentim
-            .register_channel("tg1".to_string(), channel)
-            .unwrap();
-
-        let session_id = agentim
-            .create_session(
-                "claude1".to_string(),
-                "tg1".to_string(),
-                "user1".to_string(),
-            )
-            .unwrap();
-
-        let session = agentim.get_session(&session_id).unwrap();
-        assert_eq!(session.agent_id, "claude1");
-        assert_eq!(session.channel_id, "tg1");
-    }
-
-    struct MockAgent;
 
     #[async_trait]
     impl Agent for MockAgent {
         fn agent_type(&self) -> AgentType {
-            AgentType::Claude
+            AgentType::OpenAI
         }
 
         fn id(&self) -> &str {
-            "mock-agent"
+            &self.mock_id
         }
 
-        async fn send_message(
-            &self,
-            _session: &mut Session,
-            messages: Vec<Message>,
-        ) -> Result<String> {
+        async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
             let last = messages
                 .last()
                 .map(|msg| msg.content.clone())
@@ -635,41 +544,18 @@ mod tests {
         }
     }
 
-    struct SlowMockAgent {
-        call_count: Arc<AtomicUsize>,
-    }
-
-    #[async_trait]
-    impl Agent for SlowMockAgent {
-        fn agent_type(&self) -> AgentType {
-            AgentType::Claude
-        }
-
-        fn id(&self) -> &str {
-            "slow-mock-agent"
-        }
-
-        async fn send_message(
-            &self,
-            _session: &mut Session,
-            messages: Vec<Message>,
-        ) -> Result<String> {
-            self.call_count.fetch_add(1, Ordering::SeqCst);
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            let last = messages
-                .last()
-                .map(|msg| msg.content.clone())
-                .unwrap_or_default();
-            Ok(format!("slow:{}", last))
-        }
-
-        async fn health_check(&self) -> Result<()> {
-            Ok(())
-        }
-    }
-
     struct MockChannel {
+        mock_id: String,
         sent_messages: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl MockChannel {
+        fn new(id: &str, sent_messages: Arc<Mutex<Vec<(String, String)>>>) -> Self {
+            Self {
+                mock_id: id.to_string(),
+                sent_messages,
+            }
+        }
     }
 
     #[async_trait]
@@ -679,7 +565,7 @@ mod tests {
         }
 
         fn id(&self) -> &str {
-            "mock-channel"
+            &self.mock_id
         }
 
         async fn send_message(&self, user_id: &str, content: &str) -> Result<()> {
@@ -699,20 +585,56 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_agentim_creation() {
+        let agentim = AgentIM::new();
+        assert_eq!(agentim.list_agents().len(), 0);
+        assert_eq!(agentim.list_channels().len(), 0);
+    }
+
+    #[test]
+    fn test_register_agent() {
+        let agentim = AgentIM::new();
+        let agent = Arc::new(MockAgent::new("agent1"));
+        agentim.register_agent("agent1".to_string(), agent).unwrap();
+        assert_eq!(agentim.list_agents().len(), 1);
+    }
+
+    #[test]
+    fn test_create_session() {
+        let agentim = AgentIM::new();
+        let agent = Arc::new(MockAgent::new("agent1"));
+        let channel = Arc::new(MockChannel::new("ch1", Arc::new(Mutex::new(Vec::new()))));
+
+        agentim.register_agent("agent1".to_string(), agent).unwrap();
+        agentim
+            .register_channel("ch1".to_string(), channel)
+            .unwrap();
+
+        let session_id = agentim
+            .create_session("agent1".to_string(), "ch1".to_string(), "user1".to_string())
+            .unwrap();
+
+        let session = agentim.get_session(&session_id).unwrap();
+        assert_eq!(session.agent_id, "agent1");
+        assert_eq!(session.channel_id, "ch1");
+    }
+
     #[tokio::test]
     async fn test_handle_incoming_message_autocreates_session_and_uses_reply_target() {
         let agentim = AgentIM::new();
         let sent_messages = Arc::new(Mutex::new(Vec::new()));
 
         agentim
-            .register_agent("default-agent".to_string(), Arc::new(MockAgent))
+            .register_agent(
+                "default-agent".to_string(),
+                Arc::new(MockAgent::new("default-agent")),
+            )
             .unwrap();
         agentim
             .register_channel(
                 "discord-bot".to_string(),
-                Arc::new(MockChannel {
-                    sent_messages: sent_messages.clone(),
-                }),
+                Arc::new(MockChannel::new("discord-bot", sent_messages.clone())),
             )
             .unwrap();
 
@@ -742,75 +664,5 @@ mod tests {
             sent.as_slice(),
             &[("channel-42".to_string(), "echo:ping".to_string())]
         );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_concurrent_messages_share_a_single_session_and_preserve_history() {
-        let agentim = AgentIM::new();
-        let sent_messages = Arc::new(Mutex::new(Vec::new()));
-        let call_count = Arc::new(AtomicUsize::new(0));
-
-        agentim
-            .register_agent(
-                "default-agent".to_string(),
-                Arc::new(SlowMockAgent {
-                    call_count: call_count.clone(),
-                }),
-            )
-            .unwrap();
-        agentim
-            .register_channel(
-                "discord-bot".to_string(),
-                Arc::new(MockChannel {
-                    sent_messages: sent_messages.clone(),
-                }),
-            )
-            .unwrap();
-
-        let first = agentim.handle_incoming_message(
-            "default-agent",
-            "discord-bot",
-            "user-1",
-            Some("channel-42"),
-            "first".to_string(),
-        );
-        let second = agentim.handle_incoming_message(
-            "default-agent",
-            "discord-bot",
-            "user-1",
-            Some("channel-42"),
-            "second".to_string(),
-        );
-
-        let (first, second) = tokio::join!(first, second);
-        assert!(matches!(
-            first.as_deref(),
-            Ok("slow:first") | Ok("slow:second")
-        ));
-        assert!(matches!(
-            second.as_deref(),
-            Ok("slow:first") | Ok("slow:second")
-        ));
-
-        let sessions = agentim.list_sessions();
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(call_count.load(Ordering::SeqCst), 2);
-
-        let session = &sessions[0];
-        let contents = session
-            .messages
-            .iter()
-            .map(|message| message.content.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(contents.len(), 4);
-        assert!(contents.contains(&"first"));
-        assert!(contents.contains(&"second"));
-        assert!(contents.contains(&"slow:first"));
-        assert!(contents.contains(&"slow:second"));
-
-        let sent = sent_messages.lock().unwrap();
-        assert_eq!(sent.len(), 2);
-        assert!(sent.contains(&("channel-42".to_string(), "slow:first".to_string())));
-        assert!(sent.contains(&("channel-42".to_string(), "slow:second".to_string())));
     }
 }

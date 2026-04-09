@@ -2,28 +2,28 @@ use crate::bots::dingtalk::{dingtalk_webhook_handler, DingTalkWebhook};
 use crate::bots::discord::{discord_webhook_handler, DiscordMessage};
 use crate::bots::feishu::{feishu_webhook_handler, FeishuMessage};
 use crate::bots::qq::{qq_webhook_handler, QQMessage};
-use crate::bots::slack::{slack_webhook_handler, SlackEvent};
+use crate::bots::slack::{slack_webhook_handler, verify_signature_with_secret, SlackEvent};
 use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
 use crate::error::AgentError;
 use crate::manager::AgentIM;
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
+use base64::Engine;
 use chrono::Utc;
 use dashmap::DashMap;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use hmac::{Hmac, Mac};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tower_http::limit::RequestBodyLimitLayer;
 
 type HmacSha256 = Hmac<Sha256>;
+const DINGTALK_MAX_SKEW_MILLIS: i64 = 60 * 60 * 1000;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RoutingRule {
@@ -100,6 +100,7 @@ pub struct BotServerConfig {
     pub feishu_verification_token: Option<String>,
     pub slack_signing_secret: Option<String>,
     pub dingtalk_secret: Option<String>,
+    pub session_ttl_seconds: Option<u64>,
 }
 
 impl BotServerConfig {
@@ -131,7 +132,7 @@ impl Default for BotServerConfig {
             routing_rules: Vec::new(),
             max_session_messages: None,
             context_message_limit: 10,
-            agent_timeout_ms: Some(30_000),
+            agent_timeout_ms: None,
             state_file: None,
             state_backup_count: 0,
             webhook_secret: None,
@@ -142,6 +143,7 @@ impl Default for BotServerConfig {
             feishu_verification_token: None,
             slack_signing_secret: None,
             dingtalk_secret: None,
+            session_ttl_seconds: None,
         }
     }
 }
@@ -151,47 +153,6 @@ struct AppState {
     agentim: Arc<AgentIM>,
     config: BotServerConfig,
     replay_cache: Arc<DashMap<String, i64>>,
-    persistence: Option<Arc<PersistenceWorker>>,
-}
-
-struct PersistenceWorker {
-    trigger: UnboundedSender<()>,
-}
-
-impl PersistenceWorker {
-    fn spawn(agentim: Arc<AgentIM>, path: String, backup_count: usize) -> Arc<Self> {
-        let (trigger, mut receiver) = unbounded_channel();
-        let worker = Arc::new(Self { trigger });
-
-        tokio::spawn(async move {
-            while receiver.recv().await.is_some() {
-                let agentim = agentim.clone();
-                let persist_path = path.clone();
-                let log_path = persist_path.clone();
-                match tokio::task::spawn_blocking(move || {
-                    agentim.save_sessions_to_path_with_rotation(&persist_path, backup_count)
-                })
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(err)) => {
-                        tracing::error!(error = %err, path = %log_path, "failed to persist sessions");
-                    }
-                    Err(err) => {
-                        tracing::error!(error = %err, path = %log_path, "persistence worker crashed");
-                    }
-                }
-            }
-        });
-
-        worker
-    }
-
-    fn request_snapshot(&self) -> Result<(), String> {
-        self.trigger
-            .send(())
-            .map_err(|_| "persistence worker unavailable".to_string())
-    }
 }
 
 #[derive(Serialize)]
@@ -222,19 +183,6 @@ struct ReviewResponse {
     feishu_verification_token_enabled: bool,
     slack_signing_secret_enabled: bool,
     dingtalk_secret_enabled: bool,
-    acp_sessions: Vec<AcpSessionReview>,
-}
-
-#[derive(Serialize)]
-struct AcpSessionReview {
-    session_id: String,
-    agent_id: String,
-    channel_id: String,
-    user_id: Option<String>,
-    remote_session_id: Option<String>,
-    backend: String,
-    agent: Option<String>,
-    stop_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -252,39 +200,95 @@ struct FeishuChallengeResponse {
     challenge: String,
 }
 
-fn collect_acp_sessions(agentim: &AgentIM, include_sensitive_ids: bool) -> Vec<AcpSessionReview> {
-    let mut sessions = agentim
-        .list_sessions()
-        .into_iter()
-        .filter_map(|session| {
-            let remote_session_id = session.metadata.get("acp_session_id")?.clone();
-            Some(AcpSessionReview {
-                session_id: session.id,
-                agent_id: session.agent_id,
-                channel_id: session.channel_id,
-                user_id: include_sensitive_ids.then_some(session.user_id),
-                remote_session_id: include_sensitive_ids.then_some(remote_session_id),
-                backend: session
-                    .metadata
-                    .get("acp_backend")
-                    .cloned()
-                    .unwrap_or_default(),
-                agent: session.metadata.get("acp_agent").cloned(),
-                stop_reason: session.metadata.get("acp_stop_reason").cloned(),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
-    sessions
+#[derive(Debug, Default, Deserialize)]
+struct DingTalkWebhookQuery {
+    sign: Option<String>,
+    timestamp: Option<String>,
 }
 
 fn persist_if_configured(state: &AppState) -> Result<(), String> {
-    if let Some(worker) = state.persistence.as_ref() {
-        worker.request_snapshot()?;
+    if let Some(path) = state.config.state_file.as_deref() {
+        state
+            .agentim
+            .save_sessions_to_path_with_rotation(path, state.config.state_backup_count)
+            .map_err(|err| err.to_string())?;
     }
 
     Ok(())
+}
+
+fn header_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn authorize_slack_signature(
+    headers: &HeaderMap,
+    body: &Bytes,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(secret) = state.config.slack_signing_secret.as_deref() else {
+        return Ok(());
+    };
+
+    let timestamp = header_value(headers, "x-slack-request-timestamp")
+        .ok_or_else(|| "missing x-slack-request-timestamp".to_string())?;
+    let timestamp_value = timestamp
+        .parse::<i64>()
+        .map_err(|_| "invalid x-slack-request-timestamp".to_string())?;
+    let now = Utc::now().timestamp();
+    let max_skew = state.config.webhook_max_skew_seconds;
+    if (now - timestamp_value).abs() > max_skew {
+        return Err("stale Slack request timestamp".to_string());
+    }
+
+    let signature = header_value(headers, "x-slack-signature")
+        .ok_or_else(|| "missing x-slack-signature".to_string())?;
+    let verified = verify_signature_with_secret(secret, body, timestamp, signature)
+        .map_err(|_| "invalid Slack signature".to_string())?;
+
+    if !verified {
+        return Err("invalid Slack signature".to_string());
+    }
+
+    Ok(())
+}
+
+fn authorize_dingtalk_signature(
+    query: &DingTalkWebhookQuery,
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(secret) = state.config.dingtalk_secret.as_deref() else {
+        return Ok(());
+    };
+
+    let timestamp = query
+        .timestamp
+        .as_deref()
+        .or_else(|| header_value(headers, "timestamp"))
+        .or_else(|| header_value(headers, "x-dingtalk-timestamp"))
+        .ok_or_else(|| "missing DingTalk timestamp".to_string())?;
+    let timestamp_value = timestamp
+        .parse::<i64>()
+        .map_err(|_| "invalid DingTalk timestamp".to_string())?;
+    if (Utc::now().timestamp_millis() - timestamp_value).abs() > DINGTALK_MAX_SKEW_MILLIS {
+        return Err("stale DingTalk timestamp".to_string());
+    }
+    let signature = query
+        .sign
+        .as_deref()
+        .or_else(|| header_value(headers, "sign"))
+        .or_else(|| header_value(headers, "x-dingtalk-sign"))
+        .ok_or_else(|| "missing DingTalk sign".to_string())?;
+
+    let provided_signature = base64::engine::general_purpose::STANDARD
+        .decode(signature)
+        .map_err(|_| "invalid DingTalk sign".to_string())?;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| "invalid DingTalk secret".to_string())?;
+    mac.update(format!("{}\n{}", timestamp, secret).as_bytes());
+    mac.verify_slice(&provided_signature)
+        .map_err(|_| "invalid DingTalk sign".to_string())
 }
 
 fn authorize_shared(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
@@ -517,7 +521,6 @@ async fn reviewz(
                 feishu_verification_token_enabled: false,
                 slack_signing_secret_enabled: false,
                 dingtalk_secret_enabled: false,
-                acp_sessions: Vec::new(),
             }),
         );
     }
@@ -556,10 +559,6 @@ async fn reviewz(
             feishu_verification_token_enabled: state.config.feishu_verification_token.is_some(),
             slack_signing_secret_enabled: state.config.slack_signing_secret.is_some(),
             dingtalk_secret_enabled: state.config.dingtalk_secret.is_some(),
-            acp_sessions: collect_acp_sessions(
-                &state.agentim,
-                state.config.webhook_secret.is_some(),
-            ),
         }),
     )
 }
@@ -797,58 +796,8 @@ async fn slack_webhook(
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
-
-    // Verify Slack signature if configured
-    if let Some(ref _secret) = state.config.slack_signing_secret {
-        let timestamp = match headers
-            .get("x-slack-request-timestamp")
-            .and_then(|value| value.to_str().ok())
-        {
-            Some(value) => value,
-            None => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    "missing x-slack-request-timestamp".to_string(),
-                )
-            }
-        };
-        let signature = match headers
-            .get("x-slack-signature")
-            .and_then(|value| value.to_str().ok())
-        {
-            Some(value) => value,
-            None => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    "missing x-slack-signature".to_string(),
-                )
-            }
-        };
-
-        let Ok(channel) = state.agentim.get_channel(crate::bots::SLACK_CHANNEL_ID) else {
-            return (
-                StatusCode::UNAUTHORIZED,
-                "slack channel not initialized for signature verification".to_string(),
-            );
-        };
-        let Some(slack_channel) = channel
-            .as_any()
-            .downcast_ref::<crate::bots::SlackBotChannel>()
-        else {
-            return (
-                StatusCode::UNAUTHORIZED,
-                "slack channel not initialized for signature verification".to_string(),
-            );
-        };
-        if !slack_channel
-            .verify_signature(&body, timestamp, signature)
-            .unwrap_or(false)
-        {
-            return (
-                StatusCode::UNAUTHORIZED,
-                "invalid Slack signature".to_string(),
-            );
-        }
+    if let Err(err) = authorize_slack_signature(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
     }
 
     let event: SlackEvent = match parse_json_body(&body) {
@@ -910,6 +859,7 @@ async fn slack_webhook(
 
 async fn dingtalk_webhook(
     State(state): State<AppState>,
+    Query(query): Query<DingTalkWebhookQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
@@ -917,6 +867,9 @@ async fn dingtalk_webhook(
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_dingtalk_signature(&query, &headers, &state) {
         return (StatusCode::UNAUTHORIZED, err);
     }
 
@@ -960,13 +913,47 @@ pub fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
     create_bot_router_with_config(agentim, BotServerConfig::default())
 }
 
-pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig) -> Router {
-    let persistence = config.state_file.as_ref().map(|path| {
-        PersistenceWorker::spawn(agentim.clone(), path.clone(), config.state_backup_count)
-    });
+async fn readyz(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if authorize_shared(&headers, &state).is_err() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"status": "unauthorized"})),
+        );
+    }
 
+    let agents = state.agentim.list_agents();
+    let channels = state.agentim.list_channels();
+    let has_agents = !agents.is_empty();
+    let has_channels = !channels.is_empty();
+
+    if has_agents && has_channels {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "ready",
+                "agents": agents.len(),
+                "channels": channels.len(),
+            })),
+        )
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "not_ready",
+                "agents": agents.len(),
+                "channels": channels.len(),
+            })),
+        )
+    }
+}
+
+pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route("/reviewz", get(reviewz))
         .route("/telegram", post(telegram_webhook))
         .route("/discord", post(discord_webhook))
@@ -974,13 +961,29 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/qq", post(qq_webhook))
         .route("/slack", post(slack_webhook))
         .route("/dingtalk", post(dingtalk_webhook))
-        .layer(RequestBodyLimitLayer::new(256 * 1024))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1 MB
         .with_state(AppState {
             agentim,
             config,
             replay_cache: Arc::new(DashMap::new()),
-            persistence,
         })
+}
+
+fn cleanup_stale_sessions_with_persistence(
+    agentim: &AgentIM,
+    max_idle_seconds: u64,
+    state_file: Option<&str>,
+    state_backup_count: usize,
+) -> Result<usize, String> {
+    let removed = agentim.cleanup_stale_sessions(max_idle_seconds);
+    if removed > 0 {
+        if let Some(path) = state_file {
+            agentim
+                .save_sessions_to_path_with_rotation(path, state_backup_count)
+                .map_err(|err| err.to_string())?;
+        }
+    }
+    Ok(removed)
 }
 
 pub async fn start_bot_server(
@@ -988,11 +991,107 @@ pub async fn start_bot_server(
     config: BotServerConfig,
     addr: &str,
 ) -> anyhow::Result<()> {
+    if let Some(ttl) = config.session_ttl_seconds {
+        let agentim_clone = agentim.clone();
+        let state_file = config.state_file.clone();
+        let state_backup_count = config.state_backup_count;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                match cleanup_stale_sessions_with_persistence(
+                    agentim_clone.as_ref(),
+                    ttl,
+                    state_file.as_deref(),
+                    state_backup_count,
+                ) {
+                    Ok(removed) if removed > 0 => {
+                        tracing::info!("Cleaned up {} stale session(s)", removed);
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::error!("Failed to persist stale session cleanup: {}", err);
+                    }
+                }
+            }
+        });
+    }
+
     let app = create_bot_router_with_config(agentim, config);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    println!("🤖 Bot server listening on {}", addr);
+    tracing::info!("Bot server listening on {}", addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    tracing::info!("Server shut down gracefully");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::Session;
+
+    fn temp_state_file() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("agentim-bot-server-{}.json", nanos))
+            .display()
+            .to_string()
+    }
+
+    #[test]
+    fn ttl_cleanup_persists_evictions_to_state_file() {
+        let agentim = AgentIM::new();
+        let state_file = temp_state_file();
+        let mut session = Session::new(
+            "default-agent".to_string(),
+            "telegram-bot".to_string(),
+            "user-1".to_string(),
+        );
+        session.updated_at = Utc::now() - chrono::Duration::seconds(600);
+        let session_id = session.id.clone();
+        agentim.update_session(&session_id, session).unwrap();
+        agentim.save_sessions_to_path(&state_file).unwrap();
+
+        let removed =
+            cleanup_stale_sessions_with_persistence(&agentim, 300, Some(&state_file), 0).unwrap();
+        assert_eq!(removed, 1);
+
+        let snapshot = std::fs::read_to_string(&state_file).unwrap();
+        let sessions: Vec<Session> = serde_json::from_str(&snapshot).unwrap();
+        assert!(sessions.is_empty());
+
+        let _ = std::fs::remove_file(state_file);
+    }
 }

@@ -2,6 +2,11 @@
 name = "agentim"
 version = "0.3.0"
 edition = "2021"
+description = "Multi-channel IM bridge that routes messages from Telegram, Discord, Feishu, QQ, Slack, DingTalk, WeChat Work, and LINE to AI agent backends"
+repository = "https://github.com/markbang/agentim"
+license = "MIT"
+keywords = ["im", "bridge", "chatbot", "agent", "webhook"]
+categories = ["web-programming"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -19,7 +24,6 @@ dashmap = "5"
 anyhow = "1"
 clap = { version = "=4.5.41", features = ["derive"] }
 colored = "2"
-prettytable-rs = "0.10"
 axum = "0.7"
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["limit", "trace"] }

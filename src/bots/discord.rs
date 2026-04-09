@@ -471,11 +471,7 @@ mod tests {
             "echo-agent"
         }
 
-        async fn send_message(
-            &self,
-            _session: &mut crate::session::Session,
-            messages: Vec<crate::session::Message>,
-        ) -> Result<String> {
+        async fn send_message(&self, messages: Vec<crate::session::Message>) -> Result<String> {
             Ok(format!(
                 "echo:{}",
                 messages

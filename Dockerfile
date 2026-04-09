@@ -1,7 +1,5 @@
-ARG RUST_VERSION=1.85.0
-
 # Build stage
-FROM rust:${RUST_VERSION}-slim AS builder
+FROM rust:1.82-slim AS builder
 
 WORKDIR /app
 
@@ -40,8 +38,6 @@ RUN apt-get update && apt-get install -y \
 
 # Copy the binary
 COPY --from=builder /app/target/release/agentim /usr/local/bin/agentim
-COPY start.sh /usr/local/bin/agentim-start
-RUN chmod 755 /usr/local/bin/agentim-start
 
 # Create non-root user
 RUN useradd -r -s /bin/false agentim
@@ -55,8 +51,9 @@ USER agentim
 # Expose default port
 EXPOSE 8080
 
-# Runtime wrapper uses the installed binary instead of repo-local build artifacts.
-ENV AGENTIM_BINARY=/usr/local/bin/agentim
-ENV AGENTIM_STATE_FILE=/app/state/sessions.json
+# Set default config path
+ENV AGENTIM_CONFIG=/app/config/config.json
+ENV AGENTIM_STATE=/app/state/sessions.json
 
-ENTRYPOINT ["/usr/local/bin/agentim-start"]
+# Default command - uses config file for credentials
+CMD ["agentim", "--config-file", "/app/config/config.json"]

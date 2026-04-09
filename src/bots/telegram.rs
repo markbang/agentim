@@ -36,7 +36,6 @@ struct TelegramApiEnvelope<T> {
 
 pub struct TelegramBotChannel {
     id: String,
-    token: String,
     api_url: String,
     pending_messages: Arc<DashMap<String, Vec<String>>>,
 }
@@ -46,7 +45,6 @@ impl TelegramBotChannel {
         let api_url = format!("https://api.telegram.org/bot{}", token);
         Self {
             id,
-            token,
             api_url,
             pending_messages: Arc::new(DashMap::new()),
         }
@@ -347,11 +345,7 @@ mod tests {
             "echo-agent"
         }
 
-        async fn send_message(
-            &self,
-            _session: &mut crate::session::Session,
-            messages: Vec<crate::session::Message>,
-        ) -> Result<String> {
+        async fn send_message(&self, messages: Vec<crate::session::Message>) -> Result<String> {
             Ok(format!(
                 "echo:{}",
                 messages
@@ -421,7 +415,6 @@ mod tests {
     fn test_channel(api_url: String) -> TelegramBotChannel {
         TelegramBotChannel {
             id: TELEGRAM_CHANNEL_ID.to_string(),
-            token: "test-token".to_string(),
             api_url,
             pending_messages: Arc::new(DashMap::new()),
         }

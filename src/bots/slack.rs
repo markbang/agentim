@@ -78,15 +78,7 @@ impl SlackBotChannel {
             return Ok(true);
         };
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| crate::error::AgentError::ChannelError(format!("HMAC error: {}", e)))?;
-
-        let sig_basestring = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
-        mac.update(sig_basestring.as_bytes());
-
-        let computed_signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
-
-        Ok(computed_signature == signature)
+        verify_signature_with_secret(secret, body, timestamp, signature)
     }
 
     /// Reply to a message in the same thread
@@ -147,6 +139,27 @@ impl SlackBotChannel {
 
         Ok(())
     }
+}
+
+pub fn verify_signature_with_secret(
+    secret: &str,
+    body: &[u8],
+    timestamp: &str,
+    signature: &str,
+) -> Result<bool> {
+    let provided_signature = signature.strip_prefix("v0=").ok_or_else(|| {
+        crate::error::AgentError::ChannelError("Slack signature must start with v0=".to_string())
+    })?;
+    let provided_signature = hex::decode(provided_signature).map_err(|e| {
+        crate::error::AgentError::ChannelError(format!("Invalid Slack signature encoding: {}", e))
+    })?;
+
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|e| crate::error::AgentError::ChannelError(format!("HMAC error: {}", e)))?;
+    let sig_basestring = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
+    mac.update(sig_basestring.as_bytes());
+
+    Ok(mac.verify_slice(&provided_signature).is_ok())
 }
 
 #[async_trait]

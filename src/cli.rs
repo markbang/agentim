@@ -3,7 +3,7 @@ use colored::*;
 
 #[derive(Parser)]
 #[command(name = "AgentIM")]
-#[command(about = "ACP-first IM bridge for coding agents", long_about = None)]
+#[command(about = "Multi-Channel AI Agent Manager", long_about = None)]
 pub struct Args {
     /// Telegram bot token
     #[arg(long)]
@@ -13,10 +13,6 @@ pub struct Args {
     #[arg(long)]
     pub telegram_webhook_secret_token: Option<String>,
 
-    /// Use Telegram getUpdates long polling instead of waiting for Telegram webhook callbacks
-    #[arg(long, default_value_t = false)]
-    pub telegram_poll: bool,
-
     /// Discord bot token
     #[arg(long)]
     pub discord_token: Option<String>,
@@ -24,10 +20,6 @@ pub struct Args {
     /// Native Discord interaction public key for x-signature-ed25519 verification
     #[arg(long)]
     pub discord_interaction_public_key: Option<String>,
-
-    /// Use the Discord Gateway instead of waiting for Discord webhook callbacks
-    #[arg(long, default_value_t = false)]
-    pub discord_gateway: bool,
 
     /// Deprecated fallback: Feishu credentials as "app_id:app_secret"
     #[arg(long)]
@@ -73,7 +65,7 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_secret: Option<String>,
 
-    /// Default agent type to use (recommended: acp; also supports openai, claude, codex, pi) when no channel-specific override is set
+    /// Default agent type (openai). Uses any OpenAI-compatible /chat/completions backend.
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -101,37 +93,21 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_agent: Option<String>,
 
-    /// Optional API key for the built-in OpenAI-compatible HTTP agent backend
+    /// API key for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_api_key: Option<String>,
 
-    /// Optional base URL for the built-in OpenAI-compatible HTTP agent backend
+    /// Base URL for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_base_url: Option<String>,
 
-    /// Optional model name for the built-in OpenAI-compatible HTTP agent backend
+    /// Model name for the built-in OpenAI-compatible HTTP agent backend
     #[arg(long)]
     pub openai_model: Option<String>,
 
-    /// Optional retry count for transient 5xx/network failures from the OpenAI-compatible backend
+    /// Retry this many times on transient 5xx/network failures from the OpenAI-compatible backend
     #[arg(long)]
     pub openai_max_retries: Option<usize>,
-
-    /// Command used to launch the ACP-compatible agent subprocess; this is the recommended backend
-    #[arg(long)]
-    pub acp_command: Option<String>,
-
-    /// Extra argument passed to the ACP-compatible agent subprocess; may be repeated
-    #[arg(long = "acp-arg")]
-    pub acp_args: Vec<String>,
-
-    /// Working directory shared with the ACP-compatible agent subprocess and ACP sessions
-    #[arg(long)]
-    pub acp_cwd: Option<String>,
-
-    /// Environment variable passed to the ACP-compatible agent subprocess as KEY=VALUE; may be repeated
-    #[arg(long = "acp-env")]
-    pub acp_env: Vec<String>,
 
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]
@@ -172,6 +148,10 @@ pub struct Args {
     /// Maximum allowed timestamp skew in seconds for signed webhooks
     #[arg(long)]
     pub webhook_max_skew_seconds: Option<i64>,
+
+    /// Remove idle sessions after this many seconds (disabled by default)
+    #[arg(long)]
+    pub session_ttl_seconds: Option<u64>,
 
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long)]

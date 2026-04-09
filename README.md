@@ -1,247 +1,220 @@
 # AgentIM
 
-AgentIM 是一个 IM bridge。它负责接收 Telegram / Discord / Feishu / QQ / Slack / DingTalk 的 bot 消息，维护 session，把消息转给 agent，再把回复发回原平台。
+A Rust IM bridge that routes messages from multiple messaging platforms to AI agent backends via webhooks. Connect Telegram, Discord, Feishu, Slack, DingTalk, QQ, WeChat Work, or LINE to any OpenAI-compatible API.
 
-这个项目的主目标不是自己管理模型 provider 或 API key，而是桥接到外部 agent，尤其是支持 ACP 的 coding agent。
+## Features
 
-## 当前主模型
+- **8 IM platforms** with real webhook handlers and message delivery
+- **OpenAI-compatible agent backend** - works with OpenAI, Anthropic (via proxy), Ollama, vLLM, or any `/chat/completions` API
+- **Per-platform agent routing** with priority-based routing rules
+- **Session management** with auto-creation, history trimming, and context windowing
+- **Security** - shared secret auth, HMAC-SHA256 signed webhooks, platform-native signature verification (Telegram, Discord ed25519, Feishu, Slack, DingTalk, LINE)
+- **Persistence** - JSON session state with atomic writes and backup rotation
+- **Production-ready** - graceful shutdown, request body limits, session TTL cleanup, health/readiness endpoints
+- **Docker support** with compose file included
 
-当前推荐路径：
+## Supported Platforms
 
-- `agentim` 负责 IM 接入、session、reply target、状态恢复
-- 外部 ACP agent 负责 provider、model、key、工具调用和实际推理
+| Platform | Webhook Endpoint | Signature Verification |
+|----------|-----------------|----------------------|
+| Telegram | `POST /telegram` | Native secret token |
+| Discord | `POST /discord` | Ed25519 signatures |
+| Feishu/Lark | `POST /feishu` | Verification token + URL challenge |
+| Slack | `POST /slack` | HMAC-SHA256 |
+| DingTalk | `POST /dingtalk` | HMAC-SHA256 |
+| LINE | `POST /line` | HMAC-SHA256 |
+| QQ | `POST /qq` | - |
+| WeChat Work | `POST /wechatwork` | - |
 
-也就是说，推荐拓扑是：
+## Quick Start
 
-```text
-IM platform -> AgentIM -> ACP coding agent
-```
+### Prerequisites
 
-`openai` 仍然保留为内置 HTTP backend，但它只是兼容后备选项，不是这个仓库的主路径。
+- Rust 1.70+ (for building from source)
+- An OpenAI-compatible API key
 
-如果你已经给了 `--acp-command`，现在可以不写 `--agent acp`。AgentIM 会自动把默认 backend 推断成 `acp`。
-
-## 支持的 ingress
-
-- Telegram
-  - `POST /telegram`
-  - `--telegram-poll`
-- Discord
-  - `POST /discord`
-  - `--discord-gateway`
-- Feishu / Lark
-  - `POST /feishu`
-- QQ
-  - `POST /qq`
-- Slack
-  - `POST /slack`
-- DingTalk
-  - `POST /dingtalk`
-
-运维端点：
-
-- `GET /healthz`
-- `GET /reviewz`
-
-## 安装
+### Run directly
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | bash
+cargo build --release
+
+# Minimal: just Telegram
+./target/release/agentim \
+  --openai-api-key YOUR_API_KEY \
+  --telegram-token YOUR_TELEGRAM_BOT_TOKEN
+
+# Multiple platforms
+./target/release/agentim \
+  --openai-api-key YOUR_API_KEY \
+  --openai-base-url https://api.openai.com/v1 \
+  --openai-model gpt-4o-mini \
+  --telegram-token YOUR_TELEGRAM_TOKEN \
+  --discord-token YOUR_DISCORD_TOKEN \
+  --slack-token xoxb-YOUR-SLACK-TOKEN \
+  --addr 0.0.0.0:8080
 ```
 
-默认安装到 `~/.local/bin/agentim`。
-
-## ACP 快速开始
-
-### 本机 Telegram
+### Run with config file
 
 ```bash
-agentim \
-  --agent acp \
-  --acp-command /path/to/your-coding-agent \
-  --acp-cwd /path/to/your/workspace \
-  --telegram-token "$TELEGRAM_TOKEN" \
-  --telegram-poll \
-  --state-file .agentim/sessions.json \
-  --state-backup-count 2
+cp agentim.json.example config.json
+# Edit config.json with your credentials
+./target/release/agentim --config-file config.json
 ```
 
-### 本机 Discord
+### Run with Docker
 
 ```bash
-agentim \
-  --agent acp \
-  --acp-command /path/to/your-coding-agent \
-  --acp-cwd /path/to/your/workspace \
-  --discord-token "$DISCORD_TOKEN" \
-  --discord-gateway \
-  --state-file .agentim/sessions.json \
-  --state-backup-count 2
+mkdir -p config state
+cp agentim.json.example config/config.json
+# Edit config/config.json with your credentials
+docker compose up -d
 ```
 
-### 同时接 Telegram 和 Discord
+### Run with environment variables
 
 ```bash
-agentim \
-  --agent acp \
-  --acp-command /path/to/your-coding-agent \
-  --acp-cwd /path/to/your/workspace \
-  --telegram-token "$TELEGRAM_TOKEN" \
-  --telegram-poll \
-  --discord-token "$DISCORD_TOKEN" \
-  --discord-gateway \
-  --state-file .agentim/sessions.json
-```
-
-## 用 `start.sh`
-
-先复制示例配置：
-
-```bash
-cp agentim.json.example agentim.json
-```
-
-然后补运行时环境：
-
-```bash
-export AGENTIM_CONFIG_FILE=agentim.json
-export AGENTIM_AGENT=acp
-export AGENTIM_ACP_COMMAND=/path/to/your-coding-agent
-export AGENTIM_ACP_CWD=/path/to/your/workspace
+export OPENAI_API_KEY=your-key
 export TELEGRAM_TOKEN=your-telegram-token
-export DISCORD_TOKEN=your-discord-token
-export AGENTIM_TELEGRAM_POLL=1
-export AGENTIM_DISCORD_GATEWAY=1
 ./start.sh
 ```
 
-如果设置了 `AGENTIM_ACP_COMMAND` 但没显式给 `AGENTIM_AGENT`，`start.sh` 也会自动推断成 `acp`。
+## Configuration
 
-复杂一点的 ACP 启动参数也可以直接走 wrapper：
+AgentIM supports three configuration methods (CLI flags take precedence over config file):
 
-```bash
-export AGENTIM_ACP_ARGS="--sandbox workspace-write --approval never"
-export AGENTIM_ACP_ENV="RUST_LOG=info"
-./start.sh
+### CLI Flags
+
+```
+--agent openai              Default agent type
+--openai-api-key KEY        API key for the agent backend
+--openai-base-url URL       Base URL (default: https://api.openai.com/v1)
+--openai-model MODEL        Model name (default: gpt-4o-mini)
+--openai-max-retries N      Retry on transient 5xx failures
+
+--telegram-token TOKEN      Enable Telegram bot
+--discord-token TOKEN       Enable Discord bot
+--feishu-app-id ID          Enable Feishu bot (requires --feishu-app-secret)
+--feishu-app-secret SECRET
+--slack-token TOKEN         Enable Slack bot
+--dingtalk-token TOKEN      Enable DingTalk bot
+--qq-bot-id ID              Enable QQ bot (requires --qq-bot-token)
+--qq-bot-token TOKEN
+
+--config-file PATH          Load config from JSON file
+--addr HOST:PORT            Server address (default: 127.0.0.1:8080)
+--dry-run                   Validate config and exit
 ```
 
-如果某个参数值里本身包含空格，优先放进 `agentim.json` 的 `acp_args` / `acp_env`。
+### Config File (JSON)
 
-## Dry-run
+See [`agentim.json.example`](agentim.json.example) for a complete example.
 
-```bash
-AGENTIM_DRY_RUN=1 \
-AGENTIM_AGENT=acp \
-AGENTIM_ACP_COMMAND=/bin/true \
-AGENTIM_TELEGRAM_POLL=1 \
-TELEGRAM_TOKEN=dummy \
-./start.sh
-```
+### Routing Rules
 
-Dry-run 会跳过真实 IM 健康检查，适合先验证 bridge 配置。
-
-## Docker
-
-仓库内的镜像入口现在也走同一套 ACP-first wrapper。
-
-```bash
-docker compose up --build
-```
-
-但要注意一件事：如果你用的是推荐的 `acp` backend，ACP agent 本身也必须存在于容器里，或者以 volume / 自定义镜像方式提供给容器。AgentIM 只负责 bridge，不会替你把 coding agent 一起装进去。
-
-仓库里的 `docker-compose.yml` 默认会读取 `./config/agentim.json`。启动前先从 `agentim.json.example` 复制一份过去，再填你自己的 token 和 ACP 配置。
-
-## 状态与上下文
-
-常用参数：
-
-```bash
---state-file .agentim/sessions.json
---state-backup-count 2
---max-session-messages 50
---context-message-limit 12
---agent-timeout-ms 30000
-```
-
-## Webhook 安全
-
-如果你对外暴露 webhook，至少开启一层校验：
-
-- `--webhook-secret`
-- `--webhook-signing-secret`
-- `--telegram-webhook-secret-token`
-- `--discord-interaction-public-key`
-- `--feishu-verification-token`
-- `--slack-signing-secret`
-
-本地 Telegram polling 和 Discord Gateway 不依赖这些 webhook 入口。
-
-## Routing Rules
-
-示例：
+Route different users or channels to different agent configurations:
 
 ```json
 {
-  "agent": "acp",
-  "telegram_agent": "acp",
-  "discord_agent": "acp",
   "routing_rules": [
     {
       "channel": "telegram",
-      "user_id": "vip-user",
+      "user_id": "12345",
       "priority": 10,
-      "agent": "acp"
+      "agent": "openai"
     },
     {
       "channel": "discord",
-      "reply_target_prefix": "review-",
+      "reply_target_prefix": "support-",
       "priority": 1,
-      "agent": "acp"
+      "agent": "openai"
     }
   ]
 }
 ```
 
-## 可选内置 backend
+Rules match on: `channel`, `user_id`, `user_prefix`, `reply_target`, `reply_target_prefix`. Higher priority wins when multiple rules match.
 
-如果你确实想让 AgentIM 自己直连 OpenAI-compatible HTTP，也仍然支持：
+## Security
 
-只有显式选择 `--agent openai` 时，才需要给 AgentIM 配 `--openai-api-key` 这类参数。ACP 主路径下这些都不需要，provider / model / key 继续由外部 agent 自己管理。
+### Shared Secret
 
-```bash
-agentim \
-  --agent openai \
-  --openai-api-key "$OPENAI_API_KEY" \
-  --openai-base-url "${OPENAI_BASE_URL:-https://api.openai.com/v1}" \
-  --openai-model "${OPENAI_MODEL:-gpt-4o-mini}" \
-  --telegram-token "$TELEGRAM_TOKEN" \
-  --telegram-poll
-```
-
-但这不是当前仓库的主目标。
-
-## 开发与验证
-
-先按 `prek` 官方 quickstart 安装本地命令：
-
-`https://prek.j178.dev/quickstart/`
-
-常用命令：
+Require a secret header on all webhook requests:
 
 ```bash
-prek install
-prek run --all-files
-prek run --all-files --hook-stage pre-push
-cargo test
-cargo test --test review_bridge
-AGENTIM_DRY_RUN=1 ./start.sh
-./autoresearch.sh
+--webhook-secret YOUR_SECRET
+# Clients must send: x-agentim-secret: YOUR_SECRET
 ```
 
-## 其他文档
+### Signed Webhooks (HMAC)
 
-- [QUICK_START.md](QUICK_START.md)
-- [SETUP.md](SETUP.md)
-- [BOT_INTEGRATION.md](BOT_INTEGRATION.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md)
+Verify webhook authenticity with timestamp + nonce + HMAC-SHA256:
+
+```bash
+--webhook-signing-secret YOUR_SIGNING_SECRET
+--webhook-max-skew-seconds 300
+```
+
+### Platform-Native Verification
+
+```bash
+--telegram-webhook-secret-token TOKEN
+--discord-interaction-public-key HEX_KEY
+--feishu-verification-token TOKEN
+--slack-signing-secret SECRET
+--dingtalk-secret SECRET
+```
+
+## Operations
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /healthz` | Liveness probe (always 200 if running) |
+| `GET /readyz` | Readiness probe (checks agents and channels are registered) |
+| `GET /reviewz` | Runtime configuration and session stats |
+
+## Session Management
+
+- Sessions are auto-created per user+channel combination
+- `--max-session-messages N` trims history after each turn
+- `--context-message-limit N` limits messages sent to the agent
+- `--session-ttl-seconds N` cleans up idle sessions automatically
+- `--state-file PATH` persists sessions across restarts
+- `--state-backup-count N` keeps rotated backup snapshots
+
+## Architecture
+
+```
+Webhook Request (Telegram/Discord/Feishu/...)
+    |
+    v
+Axum Router (bot_server.rs)
+    |-- Security verification (shared secret / HMAC / platform-native)
+    |-- Routing rules (priority-based agent selection)
+    v
+AgentIM Manager (manager.rs)
+    |-- Find or create session
+    |-- Build context window from history
+    v
+Agent Backend (agent.rs)
+    |-- OpenAI-compatible /chat/completions call
+    |-- Retry on transient failures
+    v
+Channel Reply (bots/*.rs)
+    |-- Platform-specific message delivery
+    v
+Persist session state (if configured)
+```
+
+## Building & Testing
+
+```bash
+cargo build --release     # build
+cargo test                # run all tests
+cargo clippy              # lint
+cargo fmt                 # format
+```
+
+## License
+
+[MIT](LICENSE)

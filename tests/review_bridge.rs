@@ -6,7 +6,7 @@ use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGR
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
 use agentim::manager::AgentIM;
-use agentim::session::{Message, Session};
+use agentim::session::Message;
 use agentim::Result;
 use async_trait::async_trait;
 use axum::{
@@ -15,6 +15,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::Engine;
+use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -32,14 +34,14 @@ struct ReviewAgent {
 #[async_trait]
 impl Agent for ReviewAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::Claude
+        AgentType::OpenAI
     }
 
     fn id(&self) -> &str {
         &self.id
     }
 
-    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
         let last = messages
             .last()
             .map(|msg| msg.content.clone())
@@ -129,30 +131,6 @@ fn temp_state_file() -> String {
         .to_string()
 }
 
-async fn wait_for_snapshot(path: &str) -> String {
-    for _ in 0..100 {
-        if let Ok(snapshot) = std::fs::read_to_string(path) {
-            if serde_json::from_str::<serde_json::Value>(&snapshot).is_ok() {
-                return snapshot;
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-
-    panic!("timed out waiting for snapshot at {}", path);
-}
-
-async fn wait_for_path(path: &str) {
-    for _ in 0..100 {
-        if std::path::Path::new(path).exists() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-
-    panic!("timed out waiting for {}", path);
-}
-
 fn signed_headers(secret: &str, body: &str, timestamp: i64, nonce: &str) -> [(String, String); 3] {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(timestamp.to_string().as_bytes());
@@ -186,6 +164,35 @@ fn discord_signed_headers(
             hex::encode(signature.to_bytes()),
         ),
         ("x-signature-timestamp".to_string(), timestamp.to_string()),
+    ]
+}
+
+fn slack_signed_headers(secret: &str, body: &str, timestamp: i64) -> [(String, String); 2] {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(format!("v0:{}:{}", timestamp, body).as_bytes());
+
+    [
+        (
+            "x-slack-signature".to_string(),
+            format!("v0={}", hex::encode(mac.finalize().into_bytes())),
+        ),
+        (
+            "x-slack-request-timestamp".to_string(),
+            timestamp.to_string(),
+        ),
+    ]
+}
+
+fn dingtalk_signed_headers(secret: &str, timestamp: i64) -> [(String, String); 2] {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(format!("{}\n{}", timestamp, secret).as_bytes());
+
+    [
+        (
+            "sign".to_string(),
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes()),
+        ),
+        ("timestamp".to_string(), timestamp.to_string()),
     ]
 }
 
@@ -288,14 +295,14 @@ struct ContextWindowAgent;
 #[async_trait]
 impl Agent for ContextWindowAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::Claude
+        AgentType::OpenAI
     }
 
     fn id(&self) -> &str {
         "context-window-agent"
     }
 
-    async fn send_message(&self, _session: &mut Session, messages: Vec<Message>) -> Result<String> {
+    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
         let first = messages
             .first()
             .map(|message| message.content.clone())
@@ -313,18 +320,14 @@ struct SlowAgent;
 #[async_trait]
 impl Agent for SlowAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::Claude
+        AgentType::OpenAI
     }
 
     fn id(&self) -> &str {
         "slow-agent"
     }
 
-    async fn send_message(
-        &self,
-        _session: &mut Session,
-        _messages: Vec<Message>,
-    ) -> Result<String> {
+    async fn send_message(&self, _messages: Vec<Message>) -> Result<String> {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         Ok("slow reply".to_string())
     }
@@ -1373,7 +1376,6 @@ async fn readiness_reviewer_persists_sessions_between_restarts() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    wait_for_snapshot(&state_file).await;
 
     let restored_manager = Arc::new(AgentIM::new());
     register_review_agent(&restored_manager, "default-agent", "default");
@@ -1421,7 +1423,7 @@ async fn persistence_reviewer_writes_clean_snapshot_without_temp_artifacts() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let snapshot = wait_for_snapshot(&state_file).await;
+    let snapshot = std::fs::read_to_string(&state_file).unwrap();
     let sessions: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
     assert!(sessions.is_array());
 
@@ -1464,7 +1466,6 @@ async fn persistence_reviewer_recovers_from_latest_valid_backup() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
-    wait_for_path(&format!("{}.bak.1", state_file)).await;
 
     std::fs::write(&state_file, "not valid json").unwrap();
 
@@ -1524,9 +1525,6 @@ async fn persistence_reviewer_rotates_snapshot_backups() {
 
     let backup_1 = format!("{}.bak.1", state_file);
     let backup_2 = format!("{}.bak.2", state_file);
-    wait_for_path(&state_file).await;
-    wait_for_path(&backup_1).await;
-    wait_for_path(&backup_2).await;
     assert!(std::path::Path::new(&state_file).exists());
     assert!(std::path::Path::new(&backup_1).exists());
     assert!(std::path::Path::new(&backup_2).exists());
@@ -1673,33 +1671,6 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 }
 
 #[tokio::test]
-async fn security_reviewer_rejects_slack_requests_missing_signature_headers() {
-    let sent_messages = Arc::new(Mutex::new(Vec::new()));
-    let agentim = review_manager(sent_messages);
-    let app = create_bot_router_with_config(
-        agentim,
-        BotServerConfig {
-            slack_signing_secret: Some("slack-secret".to_string()),
-            ..BotServerConfig::default()
-        },
-    );
-
-    let missing = app
-        .clone()
-        .oneshot(
-            Request::post("/slack")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"type":"url_verification","challenge":"hello"}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
 async fn security_reviewer_accepts_discord_interaction_signature_only_when_headers_verify() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1811,6 +1782,116 @@ async fn security_reviewer_accepts_feishu_verification_token_only_when_payload_t
 }
 
 #[tokio::test]
+async fn security_reviewer_enforces_slack_signature_headers_and_replay_window() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            slack_signing_secret: Some("slack-native-secret".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let body = r#"{"token":"slack-token","team_id":"T123","api_app_id":"A123","type":"url_verification","challenge":"verify-me","event_id":"Ev123","event_time":1700000000}"#;
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/slack")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let stale_headers =
+        slack_signed_headers("slack-native-secret", body, Utc::now().timestamp() - 600);
+    let stale_request = stale_headers.iter().fold(
+        Request::post("/slack").header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let stale = app
+        .clone()
+        .oneshot(stale_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::UNAUTHORIZED);
+
+    let valid_headers = slack_signed_headers("slack-native-secret", body, Utc::now().timestamp());
+    let valid_request = valid_headers.iter().fold(
+        Request::post("/slack").header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let ok = app
+        .clone()
+        .oneshot(valid_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    let ok_body = to_bytes(ok.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(ok_body.as_ref(), b"verify-me");
+}
+
+#[tokio::test]
+async fn security_reviewer_enforces_dingtalk_signature_headers_and_timestamp_window() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_bot_router_with_config(
+        agentim,
+        BotServerConfig {
+            dingtalk_secret: Some("dingtalk-native-secret".to_string()),
+            ..BotServerConfig::default()
+        },
+    );
+
+    let body =
+        r#"{"conversationId":"conv-1","msgtype":"text","text":{"content":""},"senderId":"user-1"}"#;
+
+    let missing = app
+        .clone()
+        .oneshot(
+            Request::post("/dingtalk")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+
+    let stale_headers = dingtalk_signed_headers(
+        "dingtalk-native-secret",
+        Utc::now().timestamp_millis() - (2 * 60 * 60 * 1000),
+    );
+    let stale_request = stale_headers.iter().fold(
+        Request::post("/dingtalk").header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let stale = app
+        .clone()
+        .oneshot(stale_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(stale.status(), StatusCode::UNAUTHORIZED);
+
+    let valid_headers =
+        dingtalk_signed_headers("dingtalk-native-secret", Utc::now().timestamp_millis());
+    let valid_request = valid_headers.iter().fold(
+        Request::post("/dingtalk").header("content-type", "application/json"),
+        |req, (name, value)| req.header(name, value),
+    );
+    let ok = app
+        .clone()
+        .oneshot(valid_request.body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn security_reviewer_accepts_telegram_secret_token_only_when_header_matches() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1885,102 +1966,6 @@ async fn functionality_reviewer_handles_feishu_url_verification_challenge() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["challenge"], "verify-me");
-}
-
-#[tokio::test]
-async fn ops_reviewer_surfaces_acp_session_observability_in_reviewz() {
-    let sent_messages = Arc::new(Mutex::new(Vec::new()));
-    let agentim = review_manager(sent_messages.clone());
-    let session_id = agentim
-        .create_session(
-            "default-agent".to_string(),
-            TELEGRAM_CHANNEL_ID.to_string(),
-            "acp-user".to_string(),
-        )
-        .unwrap();
-    let mut session = agentim.get_session(&session_id).unwrap();
-    session
-        .metadata
-        .insert("acp_session_id".to_string(), "remote-acp-1".to_string());
-    session
-        .metadata
-        .insert("acp_backend".to_string(), "codex exec --json".to_string());
-    session
-        .metadata
-        .insert("acp_agent".to_string(), "Codex@1.2.3".to_string());
-    session
-        .metadata
-        .insert("acp_stop_reason".to_string(), "EndTurn".to_string());
-    agentim.update_session(&session_id, session).unwrap();
-
-    let app = create_bot_router_with_config(
-        agentim,
-        BotServerConfig {
-            webhook_secret: Some("inspect".to_string()),
-            ..BotServerConfig::default()
-        },
-    );
-
-    let review = app
-        .clone()
-        .oneshot(
-            Request::get("/reviewz")
-                .header("x-agentim-secret", "inspect")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(review.status(), StatusCode::OK);
-    let review_bytes = to_bytes(review.into_body(), usize::MAX).await.unwrap();
-    let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
-    let acp_sessions = review_json["acp_sessions"].as_array().unwrap();
-    assert_eq!(acp_sessions.len(), 1);
-    assert_eq!(acp_sessions[0]["session_id"], session_id);
-    assert_eq!(acp_sessions[0]["user_id"], "acp-user");
-    assert_eq!(acp_sessions[0]["remote_session_id"], "remote-acp-1");
-    assert_eq!(acp_sessions[0]["backend"], "codex exec --json");
-    assert_eq!(acp_sessions[0]["agent"], "Codex@1.2.3");
-    assert_eq!(acp_sessions[0]["stop_reason"], "EndTurn");
-}
-
-#[tokio::test]
-async fn ops_reviewer_redacts_acp_sensitive_identifiers_without_shared_secret() {
-    let sent_messages = Arc::new(Mutex::new(Vec::new()));
-    let agentim = review_manager(sent_messages);
-    let session_id = agentim
-        .create_session(
-            "default-agent".to_string(),
-            TELEGRAM_CHANNEL_ID.to_string(),
-            "acp-user".to_string(),
-        )
-        .unwrap();
-    let mut session = agentim.get_session(&session_id).unwrap();
-    session
-        .metadata
-        .insert("acp_session_id".to_string(), "remote-acp-1".to_string());
-    session
-        .metadata
-        .insert("acp_backend".to_string(), "codex exec --json".to_string());
-    agentim.update_session(&session_id, session).unwrap();
-
-    let app = create_bot_router(agentim);
-    let review = app
-        .oneshot(Request::get("/reviewz").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    assert_eq!(review.status(), StatusCode::OK);
-    let review_bytes = to_bytes(review.into_body(), usize::MAX).await.unwrap();
-    let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
-    let acp_sessions = review_json["acp_sessions"].as_array().unwrap();
-    assert_eq!(acp_sessions.len(), 1);
-    assert_eq!(acp_sessions[0]["session_id"], session_id);
-    assert_eq!(acp_sessions[0]["user_id"], serde_json::Value::Null);
-    assert_eq!(
-        acp_sessions[0]["remote_session_id"],
-        serde_json::Value::Null
-    );
-    assert_eq!(acp_sessions[0]["backend"], "codex exec --json");
 }
 
 #[tokio::test]
@@ -2061,7 +2046,6 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
     assert_eq!(review_json["discord_interaction_public_key_enabled"], true);
     assert_eq!(review_json["feishu_verification_token_enabled"], true);
-    assert!(review_json["acp_sessions"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -2091,56 +2075,15 @@ fn usability_reviewer_dry_run_accepts_openai_compatible_agent_config() {
 }
 
 #[test]
-fn usability_reviewer_dry_run_accepts_acp_agent_config() {
-    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args([
-            "--dry-run",
-            "--agent",
-            "acp",
-            "--acp-command",
-            "/bin/echo",
-            "--acp-arg",
-            "agent-ready",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'acp' registered"));
-    assert!(stdout.contains("Dry run complete"));
-}
-
-#[test]
-fn usability_reviewer_dry_run_inferrs_acp_agent_from_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args([
-            "--dry-run",
-            "--acp-command",
-            "/bin/echo",
-            "--acp-arg",
-            "agent-ready",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'acp' registered"));
-    assert!(stdout.contains("inferred 'acp' from ACP command"));
-    assert!(stdout.contains("Dry run complete"));
-}
-
-#[test]
 fn usability_reviewer_binary_dry_run_exits_cleanly() {
     let state_file = temp_state_file();
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
         .args([
             "--dry-run",
             "--agent",
-            "claude",
-            "--telegram-agent",
-            "pi",
+            "openai",
+            "--openai-api-key",
+            "test-key",
             "--state-file",
             &state_file,
             "--webhook-secret",
@@ -2155,33 +2098,14 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
 }
 
 #[test]
-fn usability_reviewer_non_dry_run_rejects_stub_agents_for_production() {
-    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args([
-            "--agent",
-            "claude",
-            "--telegram-token",
-            "dummy-telegram-token",
-            "--webhook-secret",
-            "secret",
-        ])
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("cannot use stub agents"));
-}
-
-#[test]
 fn usability_reviewer_loads_runtime_config_file() {
     let config_path = temp_state_file();
     let config = r#"{
-  "agent": "codex",
-  "telegram_agent": "pi",
+  "agent": "openai",
+  "openai_api_key": "test-key",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "claude"},
-    {"channel": "discord", "reply_target_prefix": "review-", "agent": "pi"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "openai"},
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "openai"}
   ],
   "state_file": ".agentim/test-sessions.json",
   "state_backup_count": 2,
@@ -2205,8 +2129,7 @@ fn usability_reviewer_loads_runtime_config_file() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'codex' registered"));
-    assert!(stdout.contains("Telegram traffic -> pi agent"));
+    assert!(stdout.contains("Default agent 'openai' registered"));
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
@@ -2222,27 +2145,11 @@ fn usability_reviewer_loads_runtime_config_file() {
 }
 
 #[test]
-fn usability_reviewer_inferrs_acp_agent_from_runtime_config_file() {
-    let config_path = temp_state_file();
-    let config = r#"{
-  "acp_command": "/bin/echo",
-  "acp_args": ["agent-ready"],
-  "state_file": ".agentim/test-sessions.json"
-}"#;
-    std::fs::write(&config_path, config).unwrap();
+fn docs_reviewer_keeps_example_state_inside_state_directory() {
+    let config = std::fs::read_to_string("agentim.json.example").unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args(["--config-file", &config_path, "--dry-run"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'acp' registered"));
-    assert!(stdout.contains("inferred 'acp' from ACP command"));
-    assert!(stdout.contains("Dry run complete"));
-
-    let _ = std::fs::remove_file(config_path);
+    assert_eq!(parsed["state_file"], "state/sessions.json");
 }
 
 #[test]
@@ -2251,7 +2158,9 @@ fn usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credent
         .args([
             "--dry-run",
             "--agent",
-            "claude",
+            "openai",
+            "--openai-api-key",
+            "test-key",
             "--telegram-token",
             "dummy-telegram-token",
             "--discord-token",

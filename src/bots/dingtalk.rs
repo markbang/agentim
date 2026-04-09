@@ -92,6 +92,18 @@ impl DingTalkBotChannel {
         }
     }
 
+    pub fn from_token_or_webhook(
+        id: String,
+        token_or_webhook: String,
+        secret: Option<String>,
+    ) -> Self {
+        if token_or_webhook.starts_with("http://") || token_or_webhook.starts_with("https://") {
+            Self::new(id, Some(token_or_webhook), secret)
+        } else {
+            Self::with_access_token(id, token_or_webhook, secret)
+        }
+    }
+
     pub fn with_access_token(id: String, access_token: String, secret: Option<String>) -> Self {
         Self {
             id,
@@ -293,4 +305,37 @@ pub async fn dingtalk_webhook_handler(
         .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_token_builds_access_token_channel() {
+        let channel = DingTalkBotChannel::from_token_or_webhook(
+            DINGTALK_CHANNEL_ID.to_string(),
+            "access-token".to_string(),
+            Some("secret".to_string()),
+        );
+
+        assert_eq!(channel.access_token.as_deref(), Some("access-token"));
+        assert!(channel.webhook_url.is_none());
+        let webhook_url = channel.build_webhook_url().unwrap();
+        assert!(webhook_url
+            .starts_with("https://oapi.dingtalk.com/robot/send?access_token=access-token"));
+    }
+
+    #[test]
+    fn webhook_url_stays_webhook_url() {
+        let webhook_url = "https://oapi.dingtalk.com/robot/send?access_token=abc".to_string();
+        let channel = DingTalkBotChannel::from_token_or_webhook(
+            DINGTALK_CHANNEL_ID.to_string(),
+            webhook_url.clone(),
+            Some("secret".to_string()),
+        );
+
+        assert_eq!(channel.webhook_url.as_deref(), Some(webhook_url.as_str()));
+        assert!(channel.access_token.is_none());
+    }
 }

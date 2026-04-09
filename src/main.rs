@@ -1,30 +1,16 @@
-#![allow(dead_code)]
-
-mod acp;
-mod agent;
-mod bot_server;
-mod bots;
-mod channel;
-mod cli;
-mod config;
-mod error;
-mod manager;
-mod session;
-
-use acp::{AcpAgent, AcpBackendConfig};
-use agent::{ClaudeAgent, CodexAgent, OpenAiCompatibleAgent, PiAgent};
-use bot_server::{BotServerConfig, RoutingRule};
-use bots::{
+use agentim::agent::{self, OpenAiCompatibleAgent};
+use agentim::bot_server::{self, BotServerConfig, RoutingRule};
+use agentim::bots::{
     DingTalkBotChannel, DiscordBotChannel, FeishuBotChannel, QQBotChannel, SlackBotChannel,
     TelegramBotChannel, DINGTALK_CHANNEL_ID, DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID,
     SLACK_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
 };
-use channel::Channel;
+use agentim::channel::Channel;
+use agentim::cli::{self, Args};
+use agentim::manager::AgentIM;
 use clap::Parser;
-use cli::Args;
-use manager::AgentIM;
 use serde::Deserialize;
-use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, sync::Arc};
 
 #[derive(Debug, Clone, Deserialize)]
 struct RuntimeRoutingRuleConfig {
@@ -50,20 +36,12 @@ struct RuntimeConfig {
     openai_base_url: Option<String>,
     openai_model: Option<String>,
     openai_max_retries: Option<usize>,
-    acp_command: Option<String>,
-    #[serde(default)]
-    acp_args: Vec<String>,
-    acp_cwd: Option<String>,
-    #[serde(default)]
-    acp_env: HashMap<String, String>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
     telegram_webhook_secret_token: Option<String>,
-    telegram_poll: Option<bool>,
     discord_token: Option<String>,
     discord_interaction_public_key: Option<String>,
-    discord_gateway: Option<bool>,
     feishu_token: Option<String>,
     feishu_app_id: Option<String>,
     feishu_app_secret: Option<String>,
@@ -83,6 +61,7 @@ struct RuntimeConfig {
     webhook_secret: Option<String>,
     webhook_signing_secret: Option<String>,
     webhook_max_skew_seconds: Option<i64>,
+    session_ttl_seconds: Option<u64>,
     addr: Option<String>,
 }
 
@@ -112,126 +91,12 @@ fn parse_compound_credentials(value: &str, flag_name: &str) -> anyhow::Result<(S
     )
 }
 
-fn parse_key_value_assignment(value: &str, flag_name: &str) -> anyhow::Result<(String, String)> {
-    value.split_once('=').map_or_else(
-        || {
-            Err(anyhow::anyhow!(
-                "{} must be provided as KEY=VALUE",
-                flag_name
-            ))
-        },
-        |(key, value)| Ok((key.to_string(), value.to_string())),
-    )
-}
-
-fn parse_env_assignments(
-    values: Vec<String>,
-    flag_name: &str,
-) -> anyhow::Result<HashMap<String, String>> {
-    values
-        .into_iter()
-        .map(|value| parse_key_value_assignment(&value, flag_name))
-        .collect()
-}
-
-fn resolve_absolute_path(path: Option<String>) -> anyhow::Result<PathBuf> {
-    let path = path.map(PathBuf::from).unwrap_or(std::env::current_dir()?);
-    if path.is_absolute() {
-        Ok(path)
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
-}
-
-fn is_stub_agent_type(agent_type: &str) -> bool {
-    matches!(agent_type, "claude" | "codex" | "pi")
-}
-
-fn infer_default_agent_type(
-    configured_agent_type: Option<String>,
-    acp_command: Option<&str>,
-    openai_api_key: Option<&str>,
-) -> (String, Option<&'static str>) {
-    if let Some(agent_type) = configured_agent_type {
-        return (agent_type, None);
-    }
-
-    if acp_command.is_some() {
-        return ("acp".to_string(), Some("ACP command"));
-    }
-
-    if openai_api_key.is_some() {
-        return ("openai".to_string(), Some("OpenAI-compatible API key"));
-    }
-
-    ("claude".to_string(), None)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn validate_production_runtime(
-    configured_agent_types: &[String],
-    telegram_enabled: bool,
-    telegram_protected: bool,
-    discord_enabled: bool,
-    discord_protected: bool,
-    feishu_enabled: bool,
-    feishu_protected: bool,
-    qq_enabled: bool,
-    qq_protected: bool,
-    slack_enabled: bool,
-    slack_protected: bool,
-    dingtalk_enabled: bool,
-    dingtalk_protected: bool,
-    webhook_signing_secret_enabled: bool,
-    webhook_max_skew_seconds: i64,
-) -> anyhow::Result<()> {
-    let stub_agents = configured_agent_types
-        .iter()
-        .filter(|agent_type| is_stub_agent_type(agent_type))
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    if !stub_agents.is_empty() {
-        return Err(anyhow::anyhow!(
-            "production bot server cannot use stub agents ({}) ; use 'openai' or 'acp' instead",
-            stub_agents.into_iter().collect::<Vec<_>>().join(", ")
-        ));
-    }
-
-    if webhook_signing_secret_enabled && webhook_max_skew_seconds <= 0 {
-        return Err(anyhow::anyhow!(
-            "--webhook-max-skew-seconds must be greater than 0 when signed webhook verification is enabled"
-        ));
-    }
-
-    for (channel, enabled, protected) in [
-        ("Telegram", telegram_enabled, telegram_protected),
-        ("Discord", discord_enabled, discord_protected),
-        ("Feishu", feishu_enabled, feishu_protected),
-        ("QQ", qq_enabled, qq_protected),
-        ("Slack", slack_enabled, slack_protected),
-        ("DingTalk", dingtalk_enabled, dingtalk_protected),
-    ] {
-        if enabled && !protected {
-            return Err(anyhow::anyhow!(
-                "{} webhook ingress is enabled without request authentication",
-                channel
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
     openai_max_retries: Option<usize>,
-    acp_command: Option<String>,
-    acp_args: Vec<String>,
-    acp_cwd: Option<String>,
-    acp_env: HashMap<String, String>,
 }
 
 fn build_agent(
@@ -240,9 +105,6 @@ fn build_agent(
     options: &AgentRuntimeOptions,
 ) -> anyhow::Result<Arc<dyn agent::Agent>> {
     match agent_type {
-        "claude" => Ok(Arc::new(ClaudeAgent::new(id.to_string(), None))),
-        "codex" => Ok(Arc::new(CodexAgent::new(id.to_string(), None))),
-        "pi" => Ok(Arc::new(PiAgent::new(id.to_string()))),
         "openai" => {
             let api_key = options
                 .openai_api_key
@@ -261,23 +123,10 @@ fn build_agent(
                     .with_max_retries(options.openai_max_retries.unwrap_or(0)),
             ))
         }
-        "acp" => {
-            let command = options
-                .acp_command
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("acp agent requires --acp-command"))?;
-            let cwd = resolve_absolute_path(options.acp_cwd.clone())?;
-            Ok(Arc::new(AcpAgent::new(
-                id.to_string(),
-                AcpBackendConfig {
-                    command,
-                    args: options.acp_args.clone(),
-                    cwd,
-                    env: options.acp_env.clone(),
-                },
-            )))
-        }
-        other => Err(anyhow::anyhow!("Unknown agent type: {}", other)),
+        other => Err(anyhow::anyhow!(
+            "Unknown agent type '{}'. Supported: openai",
+            other
+        )),
     }
 }
 
@@ -316,36 +165,31 @@ async fn main() -> anyhow::Result<()> {
     let runtime_config = load_runtime_config(args.config_file.as_deref())?;
     let agentim = AgentIM::new();
 
+    let default_agent_type =
+        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "openai".to_string());
+    let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
+    let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
+    let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
+    let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
+    let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
+    let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
+
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
     let telegram_webhook_secret_token = merge_option(
         args.telegram_webhook_secret_token,
         runtime_config.telegram_webhook_secret_token,
     );
-    let telegram_poll = args.telegram_poll || runtime_config.telegram_poll.unwrap_or(false);
     let openai_api_key = merge_option(args.openai_api_key, runtime_config.openai_api_key);
     let openai_base_url = merge_option(args.openai_base_url, runtime_config.openai_base_url);
     let openai_model = merge_option(args.openai_model, runtime_config.openai_model);
     let openai_max_retries = args
         .openai_max_retries
         .or(runtime_config.openai_max_retries);
-    let acp_command = merge_option(args.acp_command, runtime_config.acp_command);
-    let acp_args = if args.acp_args.is_empty() {
-        runtime_config.acp_args
-    } else {
-        args.acp_args
-    };
-    let acp_cwd = merge_option(args.acp_cwd, runtime_config.acp_cwd);
-    let acp_env = if args.acp_env.is_empty() {
-        runtime_config.acp_env
-    } else {
-        parse_env_assignments(args.acp_env, "--acp-env")?
-    };
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
         runtime_config.discord_interaction_public_key,
     );
-    let discord_gateway = args.discord_gateway || runtime_config.discord_gateway.unwrap_or(false);
     let feishu_token = merge_option(args.feishu_token, runtime_config.feishu_token);
     let feishu_app_id = merge_option(args.feishu_app_id, runtime_config.feishu_app_id);
     let feishu_app_secret = merge_option(args.feishu_app_secret, runtime_config.feishu_app_secret);
@@ -375,11 +219,7 @@ async fn main() -> anyhow::Result<()> {
         .context_message_limit
         .or(runtime_config.context_message_limit)
         .unwrap_or(10);
-    let agent_timeout_ms = Some(
-        args.agent_timeout_ms
-            .or(runtime_config.agent_timeout_ms)
-            .unwrap_or(30_000),
-    );
+    let agent_timeout_ms = args.agent_timeout_ms.or(runtime_config.agent_timeout_ms);
     let webhook_secret = merge_option(args.webhook_secret, runtime_config.webhook_secret);
     let webhook_signing_secret = merge_option(
         args.webhook_signing_secret,
@@ -389,51 +229,18 @@ async fn main() -> anyhow::Result<()> {
         .webhook_max_skew_seconds
         .or(runtime_config.webhook_max_skew_seconds)
         .unwrap_or(300);
+    let session_ttl_seconds = args
+        .session_ttl_seconds
+        .or(runtime_config.session_ttl_seconds);
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
-    let (default_agent_type, inferred_default_agent_from) = infer_default_agent_type(
-        merge_option(args.agent, runtime_config.agent),
-        acp_command.as_deref(),
-        openai_api_key.as_deref(),
-    );
-    let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
-    let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
-    let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
-    let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
-    let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
-    let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
 
     let agent_runtime_options = AgentRuntimeOptions {
         openai_api_key,
         openai_base_url,
         openai_model,
         openai_max_retries,
-        acp_command,
-        acp_args,
-        acp_cwd,
-        acp_env,
     };
-
-    let mut configured_agent_types = vec![default_agent_type.clone()];
-    configured_agent_types.extend(
-        [
-            telegram_agent.as_ref(),
-            discord_agent.as_ref(),
-            feishu_agent.as_ref(),
-            qq_agent.as_ref(),
-            slack_agent.as_ref(),
-            dingtalk_agent.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        .cloned(),
-    );
-    configured_agent_types.extend(
-        runtime_config
-            .routing_rules
-            .iter()
-            .map(|rule| rule.agent.clone()),
-    );
 
     register_agent_variant(
         &agentim,
@@ -445,12 +252,6 @@ async fn main() -> anyhow::Result<()> {
         "Default agent '{}' registered",
         default_agent_type
     ));
-    if let Some(reason) = inferred_default_agent_from {
-        cli::print_info(&format!(
-            "No default agent configured; inferred '{}' from {}",
-            default_agent_type, reason
-        ));
-    }
     if let Some(openai_max_retries) = agent_runtime_options.openai_max_retries {
         cli::print_info(&format!(
             "OpenAI-compatible backend retries set to {}",
@@ -548,16 +349,6 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info(&format!("Loaded {} routing rule(s)", routing_rules.len()));
     }
 
-    let telegram_enabled = telegram_token.is_some();
-    let discord_enabled = discord_token.is_some();
-    let feishu_enabled =
-        feishu_app_id.is_some() || feishu_app_secret.is_some() || feishu_token.is_some();
-    let qq_enabled = qq_bot_id.is_some() || qq_bot_token.is_some() || qq_token.is_some();
-    let slack_enabled = slack_token.is_some();
-    let dingtalk_enabled = dingtalk_token.is_some();
-    let mut telegram_bot: Option<Arc<TelegramBotChannel>> = None;
-    let mut discord_bot: Option<Arc<DiscordBotChannel>> = None;
-
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
         let tg_bot = Arc::new(TelegramBotChannel::new(
@@ -565,7 +356,6 @@ async fn main() -> anyhow::Result<()> {
             token,
         ));
         agentim.register_channel(TELEGRAM_CHANNEL_ID.to_string(), tg_bot.clone())?;
-        telegram_bot = Some(tg_bot.clone());
 
         if args.dry_run {
             cli::print_info("Skipping Telegram health check in dry-run mode");
@@ -579,17 +369,16 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = discord_token {
         cli::print_info("Initializing Discord Bot...");
-        let discord_channel = Arc::new(DiscordBotChannel::new(
+        let discord_bot = Arc::new(DiscordBotChannel::new(
             DISCORD_CHANNEL_ID.to_string(),
             token,
         ));
-        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_channel.clone())?;
-        discord_bot = Some(discord_channel.clone());
+        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot.clone())?;
 
         if args.dry_run {
             cli::print_info("Skipping Discord health check in dry-run mode");
         } else {
-            match Channel::health_check(discord_channel.as_ref()).await {
+            match Channel::health_check(discord_bot.as_ref()).await {
                 Ok(_) => cli::print_success("Discord Bot connected"),
                 Err(e) => cli::print_error(&format!("Discord Bot connection failed: {}", e)),
             }
@@ -677,9 +466,9 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = dingtalk_token {
         cli::print_info("Initializing DingTalk Bot...");
-        let dingtalk_bot = Arc::new(DingTalkBotChannel::new(
+        let dingtalk_bot = Arc::new(DingTalkBotChannel::from_token_or_webhook(
             DINGTALK_CHANNEL_ID.to_string(),
-            Some(token),
+            token,
             dingtalk_secret.clone(),
         ));
         agentim.register_channel(DINGTALK_CHANNEL_ID.to_string(), dingtalk_bot.clone())?;
@@ -729,6 +518,10 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    if let Some(ttl) = session_ttl_seconds {
+        cli::print_info(&format!("Idle sessions will be cleaned up after {}s", ttl));
+    }
+
     if webhook_signing_secret.is_some() {
         cli::print_info(&format!(
             "Signed webhook verification enabled (max skew: {}s)",
@@ -752,48 +545,13 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info("DingTalk webhook signature enabled");
     }
 
-    if telegram_poll {
-        cli::print_info("Telegram long polling enabled");
-    }
-    if discord_gateway {
-        cli::print_info("Discord gateway mode enabled");
-    }
-
-    let start_webhook_server = (!telegram_poll && telegram_enabled)
-        || (!discord_gateway && discord_enabled)
-        || feishu_enabled
-        || qq_enabled
-        || slack_enabled
-        || dingtalk_enabled;
-
-    if !args.dry_run && start_webhook_server {
-        let shared_webhook_protection_enabled =
-            webhook_secret.is_some() || webhook_signing_secret.is_some();
-        validate_production_runtime(
-            &configured_agent_types,
-            !telegram_poll && telegram_enabled,
-            shared_webhook_protection_enabled || telegram_webhook_secret_token.is_some(),
-            !discord_gateway && discord_enabled,
-            shared_webhook_protection_enabled || discord_interaction_public_key.is_some(),
-            feishu_enabled,
-            shared_webhook_protection_enabled || feishu_verification_token.is_some(),
-            qq_enabled,
-            shared_webhook_protection_enabled,
-            slack_enabled,
-            shared_webhook_protection_enabled || slack_signing_secret.is_some(),
-            dingtalk_enabled,
-            shared_webhook_protection_enabled,
-            webhook_signing_secret.is_some(),
-            webhook_max_skew_seconds,
-        )?;
-    }
-
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
         return Ok(());
     }
 
-    let agentim = Arc::new(agentim);
+    cli::print_info(&format!("Starting Bot server on {}", addr));
+    cli::print_info("Waiting for incoming messages...");
 
     let server_config = BotServerConfig {
         telegram_agent_id,
@@ -816,110 +574,10 @@ async fn main() -> anyhow::Result<()> {
         feishu_verification_token,
         slack_signing_secret,
         dingtalk_secret,
+        session_ttl_seconds,
     };
 
-    if telegram_poll && !telegram_enabled {
-        return Err(anyhow::anyhow!(
-            "--telegram-poll requires --telegram-token or telegram_token in the config file"
-        ));
-    }
-    if discord_gateway && !discord_enabled {
-        return Err(anyhow::anyhow!(
-            "--discord-gateway requires --discord-token or discord_token in the config file"
-        ));
-    }
-
-    let mut ingress_tasks = tokio::task::JoinSet::new();
-    let mut has_background_ingress = false;
-
-    if telegram_poll {
-        let telegram_bot = telegram_bot.clone().ok_or_else(|| {
-            anyhow::anyhow!("Telegram long polling requested but bot not initialized")
-        })?;
-        let agentim = agentim.clone();
-        let telegram_agent_id = server_config.telegram_agent_id.clone();
-        let state_file = server_config.state_file.clone();
-        ingress_tasks.spawn(async move {
-            cli::print_info("Starting Telegram long polling");
-            bots::telegram::start_telegram_long_polling(
-                agentim,
-                telegram_bot,
-                telegram_agent_id,
-                manager::MessageHandlingOptions {
-                    max_messages: max_session_messages,
-                    context_message_limit,
-                    agent_timeout_ms,
-                },
-                state_file,
-                state_backup_count,
-            )
-            .await
-            .map_err(anyhow::Error::from)
-        });
-        has_background_ingress = true;
-    }
-
-    if discord_gateway {
-        let discord_bot = discord_bot
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Discord gateway requested but bot not initialized"))?;
-        let agentim = agentim.clone();
-        let discord_agent_id = server_config.discord_agent_id.clone();
-        let state_file = server_config.state_file.clone();
-        ingress_tasks.spawn(async move {
-            cli::print_info("Starting Discord gateway");
-            bots::discord::start_discord_gateway(
-                agentim,
-                discord_bot,
-                discord_agent_id,
-                manager::MessageHandlingOptions {
-                    max_messages: max_session_messages,
-                    context_message_limit,
-                    agent_timeout_ms,
-                },
-                state_file,
-                state_backup_count,
-            )
-            .await
-            .map_err(anyhow::Error::from)
-        });
-        has_background_ingress = true;
-    }
-
-    match (start_webhook_server, has_background_ingress) {
-        (true, true) => {
-            cli::print_info(&format!("Starting Bot server on {}", addr));
-            cli::print_info("Waiting for webhook, polling, and gateway messages...");
-            tokio::select! {
-                result = bot_server::start_bot_server(agentim, server_config, &addr) => result?,
-                task = ingress_tasks.join_next() => match task {
-                    Some(Ok(Ok(()))) => {}
-                    Some(Ok(Err(err))) => return Err(err),
-                    Some(Err(err)) => return Err(err.into()),
-                    None => {}
-                }
-            }
-        }
-        (true, false) => {
-            cli::print_info(&format!("Starting Bot server on {}", addr));
-            cli::print_info("Waiting for incoming messages...");
-            bot_server::start_bot_server(agentim, server_config, &addr).await?;
-        }
-        (false, true) => {
-            cli::print_info("Waiting for polling and gateway messages...");
-            match ingress_tasks.join_next().await {
-                Some(Ok(Ok(()))) => {}
-                Some(Ok(Err(err))) => return Err(err),
-                Some(Err(err)) => return Err(err.into()),
-                None => {}
-            }
-        }
-        (false, false) => {
-            return Err(anyhow::anyhow!(
-                "no runtime ingress configured; enable at least one channel, --telegram-poll, or --discord-gateway"
-            ));
-        }
-    }
+    bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;
 
     Ok(())
 }

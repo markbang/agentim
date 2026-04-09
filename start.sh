@@ -2,45 +2,16 @@
 set -euo pipefail
 
 AGENTIM_HOME="${AGENTIM_HOME:-.}"
-BINARY="${AGENTIM_BINARY:-${AGENTIM_HOME}/target/release/agentim}"
+BINARY="${AGENTIM_HOME}/target/release/agentim"
 AGENT="${AGENTIM_AGENT:-}"
 ADDR="${AGENTIM_ADDR:-}"
 DRY_RUN="${AGENTIM_DRY_RUN:-0}"
-CUSTOM_BINARY=0
-
-if [[ -n "${AGENTIM_BINARY:-}" ]]; then
-  CUSTOM_BINARY=1
-fi
-
-if [[ -z "${AGENTIM_CONFIG_FILE:-}" && -n "${AGENTIM_CONFIG:-}" ]]; then
-  AGENTIM_CONFIG_FILE="${AGENTIM_CONFIG}"
-fi
-
-if [[ -z "${AGENTIM_STATE_FILE:-}" && -n "${AGENTIM_STATE:-}" ]]; then
-  AGENTIM_STATE_FILE="${AGENTIM_STATE}"
-fi
-
-if [[ -z "${TELEGRAM_TOKEN:-}" && -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-  TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN}"
-fi
-
-if [[ -z "${DISCORD_TOKEN:-}" && -n "${DISCORD_BOT_TOKEN:-}" ]]; then
-  DISCORD_TOKEN="${DISCORD_BOT_TOKEN}"
-fi
-
-if [[ -z "$AGENT" && -n "${AGENTIM_ACP_COMMAND:-}" ]]; then
-  AGENT="acp"
-elif [[ -z "$AGENT" && -n "${OPENAI_API_KEY:-}" ]]; then
-  AGENT="openai"
-fi
 
 args=()
 [[ -n "$AGENT" ]] && args+=(--agent "$AGENT")
 [[ -n "$ADDR" ]] && args+=(--addr "$ADDR")
 
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
-[[ "${AGENTIM_TELEGRAM_POLL:-0}" == "1" ]] && args+=(--telegram-poll)
-[[ "${AGENTIM_DISCORD_GATEWAY:-0}" == "1" ]] && args+=(--discord-gateway)
 [[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
@@ -49,22 +20,6 @@ args=()
 [[ -n "${OPENAI_BASE_URL:-}" ]] && args+=(--openai-base-url "$OPENAI_BASE_URL")
 [[ -n "${OPENAI_MODEL:-}" ]] && args+=(--openai-model "$OPENAI_MODEL")
 [[ -n "${OPENAI_MAX_RETRIES:-}" ]] && args+=(--openai-max-retries "$OPENAI_MAX_RETRIES")
-[[ -n "${AGENTIM_ACP_COMMAND:-}" ]] && args+=(--acp-command "$AGENTIM_ACP_COMMAND")
-[[ -n "${AGENTIM_ACP_CWD:-}" ]] && args+=(--acp-cwd "$AGENTIM_ACP_CWD")
-if [[ -n "${AGENTIM_ACP_ARGS:-}" ]]; then
-  # shellcheck disable=SC2206
-  acp_args=( ${AGENTIM_ACP_ARGS} )
-  for acp_arg in "${acp_args[@]}"; do
-    args+=("--acp-arg=$acp_arg")
-  done
-fi
-if [[ -n "${AGENTIM_ACP_ENV:-}" ]]; then
-  # shellcheck disable=SC2206
-  acp_env=( ${AGENTIM_ACP_ENV} )
-  for acp_env_assignment in "${acp_env[@]}"; do
-    args+=("--acp-env=$acp_env_assignment")
-  done
-fi
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && args+=(--state-backup-count "$AGENTIM_STATE_BACKUP_COUNT")
 [[ -n "${AGENTIM_MAX_SESSION_MESSAGES:-}" ]] && args+=(--max-session-messages "$AGENTIM_MAX_SESSION_MESSAGES")
@@ -105,25 +60,19 @@ elif [[ -n "${QQ_TOKEN:-}" ]]; then
 fi
 
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║          AgentIM - ACP-First IM Agent Bridge             ║"
+echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
 echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
-echo "Agent:   ${AGENT:-from config or binary default}"
+echo "Agent:   ${AGENT:-from config or binary default (openai)}"
 echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
-[[ -n "${AGENTIM_ACP_COMMAND:-}" ]] && echo "ACP command: ${AGENTIM_ACP_COMMAND}"
-[[ -n "${AGENTIM_ACP_CWD:-}" ]] && echo "ACP cwd: ${AGENTIM_ACP_CWD}"
-[[ -n "${AGENTIM_ACP_ARGS:-}" ]] && echo "ACP args: ${AGENTIM_ACP_ARGS}"
-[[ -n "${AGENTIM_ACP_ENV:-}" ]] && echo "ACP env: ${AGENTIM_ACP_ENV}"
 [[ -n "${OPENAI_BASE_URL:-}" ]] && echo "OpenAI base URL: ${OPENAI_BASE_URL}"
 [[ -n "${OPENAI_MODEL:-}" ]] && echo "OpenAI model: ${OPENAI_MODEL}"
 [[ -n "${OPENAI_MAX_RETRIES:-}" ]] && echo "OpenAI retries: ${OPENAI_MAX_RETRIES}"
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
-[[ "${AGENTIM_TELEGRAM_POLL:-0}" == "1" ]] && echo "Telegram long polling: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
-[[ "${AGENTIM_DISCORD_GATEWAY:-0}" == "1" ]] && echo "Discord gateway: enabled"
 [[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]] && echo "Discord native signature: enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
@@ -141,30 +90,15 @@ printf '  %q' "$BINARY" "${args[@]}" "$@"
 printf '\n\n'
 
 needs_build=0
-if [[ "$CUSTOM_BINARY" == "1" ]]; then
-  if [[ ! -x "$BINARY" ]]; then
-    echo "Configured AGENTIM_BINARY is not executable: $BINARY" >&2
-    exit 1
-  fi
-elif [[ ! -x "$BINARY" ]]; then
-  if [[ ! -f "$AGENTIM_HOME/Cargo.toml" ]]; then
-    echo "AgentIM binary not found at $BINARY and no source tree is available to build it." >&2
-    exit 1
-  fi
+if [[ ! -x "$BINARY" ]]; then
   needs_build=1
-elif [[ -f "$AGENTIM_HOME/Cargo.toml" && "$AGENTIM_HOME/Cargo.toml" -nt "$BINARY" ]]; then
+elif [[ "$AGENTIM_HOME/Cargo.toml" -nt "$BINARY" || "$AGENTIM_HOME/Cargo.lock" -nt "$BINARY" ]]; then
   needs_build=1
-elif [[ -f "$AGENTIM_HOME/Cargo.lock" && "$AGENTIM_HOME/Cargo.lock" -nt "$BINARY" ]]; then
-  needs_build=1
-elif [[ -d "$AGENTIM_HOME/src" ]] && find "$AGENTIM_HOME/src" -type f -newer "$BINARY" -print -quit | grep -q .; then
+elif find "$AGENTIM_HOME/src" -type f -newer "$BINARY" -print -quit | grep -q .; then
   needs_build=1
 fi
 
 if [[ "$needs_build" == "1" ]]; then
-  if [[ ! -f "$AGENTIM_HOME/Cargo.toml" ]]; then
-    echo "AgentIM source tree not found under $AGENTIM_HOME; cannot build release binary." >&2
-    exit 1
-  fi
   echo "🔨 Release binary missing or stale. Building..."
   cargo build --release
   echo
