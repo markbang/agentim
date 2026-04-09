@@ -14,11 +14,14 @@ mod error {
         #[error("API error: {0}")]
         ApiError(String),
 
+        #[error("Invalid configuration: {0}")]
+        ConfigError(String),
+
         #[error("Serialization error: {0}")]
-        SerializationError(serde_json::Error),
+        SerializationError(#[from] serde_json::Error),
 
         #[error("IO error: {0}")]
-        IoError(std::io::Error),
+        IoError(#[from] std::io::Error),
 
         #[error("Unknown error: {0}")]
         Unknown(String),
@@ -42,11 +45,16 @@ mod agent {
         fn agent_type(&self) -> AgentType;
         fn id(&self) -> &str;
 
-        async fn send_message(
+        async fn send_message(&self, messages: Vec<Message>) -> Result<String>;
+        async fn send_message_with_session(
             &self,
             session: &mut Session,
             messages: Vec<Message>,
-        ) -> Result<String>;
+        ) -> Result<String> {
+            let _ = session;
+            self.send_message(messages).await
+        }
+
         async fn health_check(&self) -> Result<()>;
     }
 }
