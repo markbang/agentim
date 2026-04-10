@@ -2063,6 +2063,20 @@ fn usability_reviewer_dry_run_accepts_codex_default_agent_config() {
 }
 
 #[test]
+fn usability_reviewer_dry_run_accepts_minimal_telegram_codex_setup() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
+        .args(["--dry-run", "--telegram-token", "dummy-telegram-token"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Default agent 'codex' registered"));
+    assert!(stdout.contains("Skipping Telegram health check in dry-run mode"));
+    assert!(stdout.contains("Dry run complete"));
+}
+
+#[test]
 fn usability_reviewer_binary_dry_run_exits_cleanly() {
     let state_file = temp_state_file();
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))

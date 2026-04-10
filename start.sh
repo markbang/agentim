@@ -13,6 +13,7 @@ args=()
 
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
 [[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
+[[ -n "${TELEGRAM_WEBHOOK_URL:-}" ]] && args+=(--telegram-webhook-url "$TELEGRAM_WEBHOOK_URL")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
 [[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")

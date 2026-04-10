@@ -8,7 +8,7 @@ use agentim::bots::{
 use agentim::channel::Channel;
 use agentim::cli::{self, Args};
 use agentim::codex::{CodexAgent, CodexBackendConfig};
-use agentim::manager::AgentIM;
+use agentim::manager::{AgentIM, MessageHandlingOptions};
 use clap::Parser;
 use serde::Deserialize;
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
@@ -43,6 +43,7 @@ struct RuntimeConfig {
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
     telegram_webhook_secret_token: Option<String>,
+    telegram_webhook_url: Option<String>,
     discord_token: Option<String>,
     discord_interaction_public_key: Option<String>,
     feishu_token: Option<String>,
@@ -238,6 +239,10 @@ async fn main() -> anyhow::Result<()> {
         args.telegram_webhook_secret_token,
         runtime_config.telegram_webhook_secret_token,
     );
+    let telegram_webhook_url = merge_option(
+        args.telegram_webhook_url,
+        runtime_config.telegram_webhook_url,
+    );
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -404,6 +409,7 @@ async fn main() -> anyhow::Result<()> {
         cli::print_info(&format!("Loaded {} routing rule(s)", routing_rules.len()));
     }
 
+    let mut telegram_bot: Option<Arc<TelegramBotChannel>> = None;
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
         let tg_bot = Arc::new(TelegramBotChannel::new(
@@ -411,6 +417,7 @@ async fn main() -> anyhow::Result<()> {
             token,
         ));
         agentim.register_channel(TELEGRAM_CHANNEL_ID.to_string(), tg_bot.clone())?;
+        telegram_bot = Some(tg_bot.clone());
 
         if args.dry_run {
             cli::print_info("Skipping Telegram health check in dry-run mode");
@@ -603,6 +610,39 @@ async fn main() -> anyhow::Result<()> {
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
         return Ok(());
+    }
+
+    if let Some(tg_bot) = telegram_bot {
+        if let Some(webhook_url) = telegram_webhook_url.as_deref() {
+            tg_bot
+                .set_webhook_with_secret(webhook_url, telegram_webhook_secret_token.as_deref())
+                .await?;
+            cli::print_info(&format!("Telegram webhook configured: {}", webhook_url));
+        } else {
+            let polling_options = MessageHandlingOptions {
+                max_messages: max_session_messages,
+                context_message_limit,
+                agent_timeout_ms,
+            };
+            let polling_agentim = Arc::new(agentim.clone());
+            let polling_agent_id = telegram_agent_id.clone();
+            let polling_state_file = state_file.clone();
+            cli::print_info("Telegram long polling enabled (default local mode)");
+            tokio::spawn(async move {
+                if let Err(err) = agentim::bots::telegram::start_telegram_long_polling(
+                    polling_agentim,
+                    tg_bot,
+                    polling_agent_id,
+                    polling_options,
+                    polling_state_file,
+                    state_backup_count,
+                )
+                .await
+                {
+                    tracing::error!(error = %err, "Telegram long polling stopped");
+                }
+            });
+        }
     }
 
     cli::print_info(&format!("Starting Bot server on {}", addr));

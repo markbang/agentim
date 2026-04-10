@@ -13,6 +13,10 @@ pub struct Args {
     #[arg(long)]
     pub telegram_webhook_secret_token: Option<String>,
 
+    /// Public Telegram webhook URL. If omitted, AgentIM uses Telegram long polling by default.
+    #[arg(long)]
+    pub telegram_webhook_url: Option<String>,
+
     /// Discord bot token
     #[arg(long)]
     pub discord_token: Option<String>,

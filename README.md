@@ -16,7 +16,7 @@ This installs `agentim` into `~/.local/bin` by default. Override with:
 curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_INSTALL_DIR=/your/bin sh
 ```
 
-By default, AgentIM talks to `codex app-server`, so the minimal local setup is close to:
+By default, AgentIM talks to `codex app-server` and uses Telegram long polling for local usage, so the minimal local setup is close to:
 
 - install and log into `codex`
 - provide a bot token
@@ -60,6 +60,8 @@ For transport details, see [docs/codex-app-server-transport-review.md](docs/code
 agentim --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 ```
 
+No Telegram webhook setup is required in the default local mode.
+
 ### Override the backend launch
 
 ```bash
@@ -76,6 +78,14 @@ agentim --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 cp agentim.json.example config.json
 # edit config.json
 ./target/release/agentim --config-file config.json
+```
+
+### Telegram webhook mode
+
+```bash
+agentim \
+  --telegram-token YOUR_TELEGRAM_BOT_TOKEN \
+  --telegram-webhook-url https://your-domain.example/telegram
 ```
 
 ### Docker
@@ -106,6 +116,7 @@ Core flags:
 --codex-arg ARG
 --codex-cwd PATH
 --codex-env KEY=VALUE
+--telegram-webhook-url URL
 --config-file PATH
 --addr HOST:PORT
 --dry-run
