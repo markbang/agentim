@@ -1,6 +1,6 @@
 [package]
 name = "agentim"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Multi-channel IM bridge that routes messages from Telegram, Discord, Feishu, QQ, Slack, DingTalk, WeChat Work, and LINE to AI agent backends"
 repository = "https://github.com/markbang/agentim"

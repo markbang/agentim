@@ -2,6 +2,20 @@
 
 AgentIM is a Rust bridge that connects chat platforms to a local Codex backend through webhooks.
 
+## Install
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | sh
+```
+
+This installs `agentim` into `~/.local/bin` by default. Override with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_INSTALL_DIR=/your/bin sh
+```
+
 By default, AgentIM talks to `codex app-server`, so the minimal local setup is close to:
 
 - install and log into `codex`
@@ -43,9 +57,7 @@ For transport details, see [docs/codex-app-server-transport-review.md](docs/code
 ### Minimal local run
 
 ```bash
-cargo build --release
-./target/release/agentim \
-  --telegram-token YOUR_TELEGRAM_BOT_TOKEN
+agentim --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 ```
 
 ### Override the backend launch
