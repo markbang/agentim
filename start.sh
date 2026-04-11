@@ -13,7 +13,6 @@ args=()
 
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && args+=(--config-file "$AGENTIM_CONFIG_FILE")
 [[ -n "${TELEGRAM_AGENT:-}" ]] && args+=(--telegram-agent "$TELEGRAM_AGENT")
-[[ -n "${TELEGRAM_WEBHOOK_URL:-}" ]] && args+=(--telegram-webhook-url "$TELEGRAM_WEBHOOK_URL")
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
 [[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
@@ -41,7 +40,6 @@ fi
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && args+=(--webhook-secret "$AGENTIM_WEBHOOK_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && args+=(--webhook-signing-secret "$AGENTIM_WEBHOOK_SIGNING_SECRET")
 [[ -n "${AGENTIM_WEBHOOK_MAX_SKEW_SECONDS:-}" ]] && args+=(--webhook-max-skew-seconds "$AGENTIM_WEBHOOK_MAX_SKEW_SECONDS")
-[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && args+=(--telegram-webhook-secret-token "$TELEGRAM_WEBHOOK_SECRET_TOKEN")
 [[ -n "${FEISHU_WEBHOOK_VERIFICATION_TOKEN:-}" ]] && args+=(--feishu-verification-token "$FEISHU_WEBHOOK_VERIFICATION_TOKEN")
 
 if [[ -n "${TELEGRAM_TOKEN:-}" ]]; then
@@ -91,7 +89,6 @@ echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
-[[ -n "${TELEGRAM_WEBHOOK_SECRET_TOKEN:-}" ]] && echo "Telegram native secret: enabled"
 [[ -n "${FEISHU_WEBHOOK_VERIFICATION_TOKEN:-}" ]] && echo "Feishu verification token: enabled"
 [[ -n "${AGENTIM_STATE_BACKUP_COUNT:-}" ]] && echo "State backup rotation: ${AGENTIM_STATE_BACKUP_COUNT}"
 [[ -n "${AGENTIM_CONTEXT_MESSAGE_LIMIT:-}" ]] && echo "Agent context window: ${AGENTIM_CONTEXT_MESSAGE_LIMIT}"

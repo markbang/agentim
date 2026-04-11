@@ -2112,7 +2112,6 @@ fn usability_reviewer_loads_runtime_config_file() {
   "webhook_secret": "cfg-secret",
   "webhook_signing_secret": "cfg-sign",
   "webhook_max_skew_seconds": 90,
-  "telegram_webhook_secret_token": "tg-config",
   "discord_interaction_public_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "feishu_verification_token": "fei-config",
   "addr": "127.0.0.1:9090"
@@ -2134,7 +2133,6 @@ fn usability_reviewer_loads_runtime_config_file() {
     assert!(stdout.contains("Agent context window limited to 7 message"));
     assert!(stdout.contains("Agent requests will time out after 250ms"));
     assert!(stdout.contains("Signed webhook verification enabled (max skew: 90s)"));
-    assert!(stdout.contains("Telegram native webhook secret token enabled"));
     assert!(stdout.contains("Discord interaction signature verification enabled"));
     assert!(stdout.contains("Feishu webhook verification token enabled"));
     assert!(stdout.contains("Dry run complete"));

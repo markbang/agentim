@@ -42,8 +42,6 @@ struct RuntimeConfig {
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
-    telegram_webhook_secret_token: Option<String>,
-    telegram_webhook_url: Option<String>,
     discord_token: Option<String>,
     discord_interaction_public_key: Option<String>,
     feishu_token: Option<String>,
@@ -235,14 +233,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
-    let telegram_webhook_secret_token = merge_option(
-        args.telegram_webhook_secret_token,
-        runtime_config.telegram_webhook_secret_token,
-    );
-    let telegram_webhook_url = merge_option(
-        args.telegram_webhook_url,
-        runtime_config.telegram_webhook_url,
-    );
     let discord_token = merge_option(args.discord_token, runtime_config.discord_token);
     let discord_interaction_public_key = merge_option(
         args.discord_interaction_public_key,
@@ -591,9 +581,6 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    if telegram_webhook_secret_token.is_some() {
-        cli::print_info("Telegram native webhook secret token enabled");
-    }
     if discord_interaction_public_key.is_some() {
         cli::print_info("Discord interaction signature verification enabled");
     }
@@ -613,36 +600,29 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(tg_bot) = telegram_bot {
-        if let Some(webhook_url) = telegram_webhook_url.as_deref() {
-            tg_bot
-                .set_webhook_with_secret(webhook_url, telegram_webhook_secret_token.as_deref())
-                .await?;
-            cli::print_info(&format!("Telegram webhook configured: {}", webhook_url));
-        } else {
-            let polling_options = MessageHandlingOptions {
-                max_messages: max_session_messages,
-                context_message_limit,
-                agent_timeout_ms,
-            };
-            let polling_agentim = Arc::new(agentim.clone());
-            let polling_agent_id = telegram_agent_id.clone();
-            let polling_state_file = state_file.clone();
-            cli::print_info("Telegram long polling enabled (default local mode)");
-            tokio::spawn(async move {
-                if let Err(err) = agentim::bots::telegram::start_telegram_long_polling(
-                    polling_agentim,
-                    tg_bot,
-                    polling_agent_id,
-                    polling_options,
-                    polling_state_file,
-                    state_backup_count,
-                )
-                .await
-                {
-                    tracing::error!(error = %err, "Telegram long polling stopped");
-                }
-            });
-        }
+        let polling_options = MessageHandlingOptions {
+            max_messages: max_session_messages,
+            context_message_limit,
+            agent_timeout_ms,
+        };
+        let polling_agentim = Arc::new(agentim.clone());
+        let polling_agent_id = telegram_agent_id.clone();
+        let polling_state_file = state_file.clone();
+        cli::print_info("Telegram long polling enabled");
+        tokio::spawn(async move {
+            if let Err(err) = agentim::bots::telegram::start_telegram_long_polling(
+                polling_agentim,
+                tg_bot,
+                polling_agent_id,
+                polling_options,
+                polling_state_file,
+                state_backup_count,
+            )
+            .await
+            {
+                tracing::error!(error = %err, "Telegram long polling stopped");
+            }
+        });
     }
 
     cli::print_info(&format!("Starting Bot server on {}", addr));
@@ -664,7 +644,7 @@ async fn main() -> anyhow::Result<()> {
         webhook_secret,
         webhook_signing_secret,
         webhook_max_skew_seconds,
-        telegram_webhook_secret_token,
+        telegram_webhook_secret_token: None,
         discord_interaction_public_key,
         feishu_verification_token,
         slack_signing_secret,

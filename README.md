@@ -1,6 +1,6 @@
 # AgentIM
 
-AgentIM is a Rust bridge that connects chat platforms to a local Codex backend through webhooks.
+AgentIM is a Rust bridge that connects chat platforms to a local Codex backend.
 
 ## Install
 
@@ -16,7 +16,7 @@ This installs `agentim` into `~/.local/bin` by default. Override with:
 curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_INSTALL_DIR=/your/bin sh
 ```
 
-By default, AgentIM talks to `codex app-server` and uses Telegram long polling for local usage, so the minimal local setup is close to:
+By default, AgentIM talks to `codex app-server` and receives Telegram messages through long polling, so the minimal local setup is close to:
 
 - install and log into `codex`
 - provide a bot token
@@ -36,9 +36,9 @@ For transport details, see [docs/codex-app-server-transport-review.md](docs/code
 
 ## Supported Platforms
 
-| Platform | Endpoint | Verification |
+| Platform | Delivery | Verification |
 | --- | --- | --- |
-| Telegram | `POST /telegram` | Native secret token |
+| Telegram | Long polling (`getUpdates`) | Bot token |
 | Discord | `POST /discord` | Ed25519 |
 | Feishu/Lark | `POST /feishu` | Verification token + URL challenge |
 | Slack | `POST /slack` | HMAC-SHA256 |
@@ -60,7 +60,7 @@ For transport details, see [docs/codex-app-server-transport-review.md](docs/code
 agentim --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 ```
 
-No Telegram webhook setup is required in the default local mode.
+Telegram does not require webhook setup in AgentIM.
 
 ### Override the backend launch
 
@@ -78,14 +78,6 @@ No Telegram webhook setup is required in the default local mode.
 cp agentim.json.example config.json
 # edit config.json
 ./target/release/agentim --config-file config.json
-```
-
-### Telegram webhook mode
-
-```bash
-agentim \
-  --telegram-token YOUR_TELEGRAM_BOT_TOKEN \
-  --telegram-webhook-url https://your-domain.example/telegram
 ```
 
 ### Docker
@@ -116,7 +108,6 @@ Core flags:
 --codex-arg ARG
 --codex-cwd PATH
 --codex-env KEY=VALUE
---telegram-webhook-url URL
 --config-file PATH
 --addr HOST:PORT
 --dry-run
@@ -153,7 +144,7 @@ AgentIM supports:
 
 - shared secret auth via `x-agentim-secret`
 - signed webhooks via timestamp + nonce + HMAC
-- native platform verification for Telegram, Discord, Feishu, Slack, and DingTalk
+- native platform verification for Discord, Feishu, Slack, and DingTalk
 
 ## Operations
 
