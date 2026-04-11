@@ -644,7 +644,6 @@ async fn main() -> anyhow::Result<()> {
         webhook_secret,
         webhook_signing_secret,
         webhook_max_skew_seconds,
-        telegram_webhook_secret_token: None,
         discord_interaction_public_key,
         feishu_verification_token,
         slack_signing_secret,

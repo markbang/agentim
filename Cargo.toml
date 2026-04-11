@@ -34,3 +34,4 @@ ed25519-dalek = "2"
 base64 = "0.22"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
+toml = "0.8"

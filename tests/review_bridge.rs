@@ -1,16 +1,20 @@
 use agentim::agent::{Agent, OpenAiCompatibleAgent};
 use agentim::bot_server::{
-    create_bot_router, create_bot_router_with_config, BotServerConfig, RoutingRule,
+    create_bot_router as create_runtime_bot_router,
+    create_bot_router_with_config as create_runtime_bot_router_with_config, BotServerConfig,
+    RoutingRule,
 };
+use agentim::bots::telegram::{handle_telegram_update, TelegramUpdate};
 use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID};
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
+use agentim::error::AgentError;
 use agentim::manager::AgentIM;
 use agentim::session::Message;
 use agentim::Result;
 use async_trait::async_trait;
 use axum::{
-    body::{to_bytes, Body},
+    body::{to_bytes, Body, Bytes},
     http::{Request, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -212,6 +216,87 @@ fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> A
     agentim
 }
 
+fn telegram_test_error_status(err: &AgentError) -> StatusCode {
+    match err {
+        AgentError::TimeoutError(_) => StatusCode::GATEWAY_TIMEOUT,
+        AgentError::ApiError(_) | AgentError::HttpError(_) | AgentError::ChannelError(_) => {
+            StatusCode::BAD_GATEWAY
+        }
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
+async fn telegram_test_ingress(
+    agentim: Arc<AgentIM>,
+    config: BotServerConfig,
+    body: Bytes,
+) -> (StatusCode, String) {
+    let update: TelegramUpdate = match serde_json::from_slice(&body) {
+        Ok(update) => update,
+        Err(err) => return (StatusCode::BAD_REQUEST, err.to_string()),
+    };
+
+    let agent_id = update
+        .message
+        .as_ref()
+        .map(|message| {
+            let user_id = message.chat.id.to_string();
+            config
+                .resolve_agent(
+                    "telegram",
+                    &user_id,
+                    &user_id,
+                    config.telegram_agent_id.as_str(),
+                )
+                .to_string()
+        })
+        .unwrap_or_else(|| config.telegram_agent_id.clone());
+
+    match handle_telegram_update(
+        agentim.clone(),
+        &agent_id,
+        config.max_session_messages,
+        config.context_message_limit,
+        config.agent_timeout_ms,
+        update,
+    )
+    .await
+    {
+        Ok(_) => {
+            if let Some(path) = config.state_file.as_deref() {
+                if let Err(err) =
+                    agentim.save_sessions_to_path_with_rotation(path, config.state_backup_count)
+                {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string());
+                }
+            }
+
+            (StatusCode::OK, "ok".to_string())
+        }
+        Err(err) => (telegram_test_error_status(&err), err.to_string()),
+    }
+}
+
+// Production no longer exposes `/telegram`; tests that still need to inject Telegram updates
+// mount a local ingress that forwards directly into the shared Telegram update handler.
+fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
+    create_bot_router_with_config(agentim, BotServerConfig::default())
+}
+
+fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig) -> Router {
+    let telegram_agentim = agentim.clone();
+    let telegram_config = config.clone();
+
+    create_runtime_bot_router_with_config(agentim, config).route(
+        "/telegram",
+        post(move |body: Bytes| {
+            let agentim = telegram_agentim.clone();
+            let config = telegram_config.clone();
+            async move { telegram_test_ingress(agentim, config, body).await }
+        }),
+    )
+}
+
 async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new()
         .route(
@@ -401,6 +486,27 @@ async fn functionality_reviewer_routes_all_platform_webhooks() {
 
     assert_eq!(agentim.list_sessions().len(), 4);
     assert_eq!(sent_messages.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn functionality_reviewer_does_not_expose_telegram_http_ingress() {
+    let sent_messages = Arc::new(Mutex::new(Vec::new()));
+    let agentim = review_manager(sent_messages);
+    let app = create_runtime_bot_router(agentim);
+
+    let response = app
+        .oneshot(
+            Request::post("/telegram")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"update_id":999,"message":{"message_id":9990,"chat":{"id":999},"text":"should not route"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -1554,14 +1660,14 @@ async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
         },
     );
 
+    let body = r#"{"id":"discord-msg-secret","author":{"id":"discord-user","username":"tester"},"content":"secret check","channel_id":"discord-room"}"#;
+
     let unauthorized = app
         .clone()
         .oneshot(
-            Request::post("/telegram")
+            Request::post("/discord")
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"update_id":11,"message":{"message_id":110,"chat":{"id":11},"text":"no secret"}}"#,
-                ))
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
@@ -1571,12 +1677,10 @@ async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
     let wrong_secret = app
         .clone()
         .oneshot(
-            Request::post("/telegram")
+            Request::post("/discord")
                 .header("content-type", "application/json")
                 .header("x-agentim-secret", "wrong")
-                .body(Body::from(
-                    r#"{"update_id":12,"message":{"message_id":120,"chat":{"id":12},"text":"wrong secret"}}"#,
-                ))
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
@@ -1586,12 +1690,10 @@ async fn security_reviewer_rejects_missing_secret_and_accepts_valid_secret() {
     let authorized = app
         .clone()
         .oneshot(
-            Request::post("/telegram")
+            Request::post("/discord")
                 .header("content-type", "application/json")
                 .header("x-agentim-secret", "top-secret")
-                .body(Body::from(
-                    r#"{"update_id":13,"message":{"message_id":130,"chat":{"id":13},"text":"good secret"}}"#,
-                ))
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
@@ -1612,8 +1714,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
         },
     );
 
-    let body =
-        r#"{"update_id":14,"message":{"message_id":140,"chat":{"id":14},"text":"signed hello"}}"#;
+    let body = r#"{"id":"discord-msg-signed","author":{"id":"discord-user","username":"tester"},"content":"signed hello","channel_id":"discord-room"}"#;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1622,7 +1723,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
     let missing_signature = app
         .clone()
         .oneshot(
-            Request::post("/telegram")
+            Request::post("/discord")
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1634,7 +1735,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
     let invalid_signature = app
         .clone()
         .oneshot(
-            Request::post("/telegram")
+            Request::post("/discord")
                 .header("content-type", "application/json")
                 .header("x-agentim-timestamp", now.to_string())
                 .header("x-agentim-nonce", "nonce-bad")
@@ -1648,7 +1749,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
 
     let headers = signed_headers("signed-secret", body, now, "nonce-good");
     let valid_request = headers.iter().fold(
-        Request::post("/telegram").header("content-type", "application/json"),
+        Request::post("/discord").header("content-type", "application/json"),
         |req, (name, value)| req.header(name, value),
     );
     let signed_ok = app
@@ -1659,7 +1760,7 @@ async fn security_reviewer_rejects_invalid_signed_webhooks_and_replay() {
     assert_eq!(signed_ok.status(), StatusCode::OK);
 
     let replay_request = headers.iter().fold(
-        Request::post("/telegram").header("content-type", "application/json"),
+        Request::post("/discord").header("content-type", "application/json"),
         |req, (name, value)| req.header(name, value),
     );
     let replay = app
@@ -1892,59 +1993,6 @@ async fn security_reviewer_enforces_dingtalk_signature_headers_and_timestamp_win
 }
 
 #[tokio::test]
-async fn security_reviewer_accepts_telegram_secret_token_only_when_header_matches() {
-    let sent_messages = Arc::new(Mutex::new(Vec::new()));
-    let agentim = review_manager(sent_messages);
-    let app = create_bot_router_with_config(
-        agentim,
-        BotServerConfig {
-            telegram_webhook_secret_token: Some("tg-native".to_string()),
-            ..BotServerConfig::default()
-        },
-    );
-
-    let body = r#"{"update_id":15,"message":{"message_id":150,"chat":{"id":15},"text":"telegram native"}}"#;
-
-    let missing = app
-        .clone()
-        .oneshot(
-            Request::post("/telegram")
-                .header("content-type", "application/json")
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
-
-    let wrong = app
-        .clone()
-        .oneshot(
-            Request::post("/telegram")
-                .header("content-type", "application/json")
-                .header("x-telegram-bot-api-secret-token", "wrong")
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
-
-    let ok = app
-        .clone()
-        .oneshot(
-            Request::post("/telegram")
-                .header("content-type", "application/json")
-                .header("x-telegram-bot-api-secret-token", "tg-native")
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(ok.status(), StatusCode::OK);
-}
-
-#[tokio::test]
 async fn functionality_reviewer_handles_feishu_url_verification_challenge() {
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = review_manager(sent_messages);
@@ -1995,7 +2043,6 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
             webhook_secret: Some("inspect".to_string()),
             webhook_signing_secret: Some("signed-inspect".to_string()),
             webhook_max_skew_seconds: 120,
-            telegram_webhook_secret_token: Some("tg-inspect".to_string()),
             discord_interaction_public_key: Some(
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             ),
@@ -2043,7 +2090,6 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     assert_eq!(review_json["webhook_secret_enabled"], true);
     assert_eq!(review_json["webhook_signing_enabled"], true);
     assert_eq!(review_json["webhook_max_skew_seconds"], 120);
-    assert_eq!(review_json["telegram_webhook_secret_token_enabled"], true);
     assert_eq!(review_json["discord_interaction_public_key_enabled"], true);
     assert_eq!(review_json["feishu_verification_token_enabled"], true);
 }

@@ -14,6 +14,7 @@ use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
+use toml::Value as TomlValue;
 use tracing::{debug, info, warn};
 
 const CODEX_THREAD_ID_METADATA_KEY: &str = "codex_thread_id";
@@ -559,6 +560,7 @@ struct ProcessCodexTransportFactory {
 #[async_trait]
 impl CodexTransportFactory for ProcessCodexTransportFactory {
     async fn connect(&self) -> std::result::Result<CodexTransport, CodexClientError> {
+        let isolated_codex_home = prepare_isolated_codex_home(&self.config)?;
         let mut command = Command::new(&self.config.command);
         command
             .args(&self.config.args)
@@ -571,6 +573,7 @@ impl CodexTransportFactory for ProcessCodexTransportFactory {
         for (key, value) in &self.config.env {
             command.env(key, value);
         }
+        command.env("CODEX_HOME", &isolated_codex_home);
 
         let mut child = command.spawn()?;
         let stdout = child.stdout.take().ok_or_else(|| {
@@ -590,6 +593,113 @@ impl CodexTransportFactory for ProcessCodexTransportFactory {
     fn describe(&self) -> String {
         self.config.describe()
     }
+}
+
+fn prepare_isolated_codex_home(
+    config: &CodexBackendConfig,
+) -> std::result::Result<PathBuf, CodexClientError> {
+    let isolated_home = config.cwd.join(".omx/runtime/codex-home");
+    std::fs::create_dir_all(&isolated_home)?;
+
+    let source_home = source_codex_home();
+    if let Some(source_config) = source_home
+        .as_ref()
+        .map(|home| home.join("config.toml"))
+        .filter(|path| path.exists())
+    {
+        let source = std::fs::read_to_string(&source_config)?;
+        let sanitized = sanitize_codex_config(&source, &config.cwd)?;
+        std::fs::write(isolated_home.join("config.toml"), sanitized)?;
+    } else {
+        std::fs::write(
+            isolated_home.join("config.toml"),
+            minimal_codex_config(&config.cwd),
+        )?;
+    }
+
+    if let Some(source_auth) = source_home
+        .as_ref()
+        .map(|home| home.join("auth.json"))
+        .filter(|path| path.exists())
+    {
+        std::fs::copy(source_auth, isolated_home.join("auth.json"))?;
+    }
+
+    Ok(isolated_home)
+}
+
+fn source_codex_home() -> Option<PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")))
+}
+
+fn sanitize_codex_config(
+    source: &str,
+    cwd: &Path,
+) -> std::result::Result<String, CodexClientError> {
+    let parsed = source
+        .parse::<TomlValue>()
+        .map_err(|err| CodexClientError::Protocol(format!("invalid CODEX config: {}", err)))?;
+
+    let mut root = toml::map::Map::new();
+    let table = parsed.as_table().ok_or_else(|| {
+        CodexClientError::Protocol("CODEX config must be a TOML table".to_string())
+    })?;
+
+    for key in [
+        "model_provider",
+        "model",
+        "preferred_auth_method",
+        "personality",
+        "approval_policy",
+        "sandbox_mode",
+        "approvals_reviewer",
+        "model_reasoning_effort",
+        "model_context_window",
+        "model_auto_compact_token_limit",
+    ] {
+        if let Some(value) = table.get(key) {
+            root.insert(key.to_string(), value.clone());
+        }
+    }
+
+    if let Some(value) = table.get("sandbox_workspace_write") {
+        root.insert("sandbox_workspace_write".to_string(), value.clone());
+    }
+    if let Some(value) = table.get("model_providers") {
+        root.insert("model_providers".to_string(), value.clone());
+    }
+
+    let mut projects = toml::map::Map::new();
+    projects.insert(
+        cwd.display().to_string(),
+        TomlValue::Table({
+            let mut project = toml::map::Map::new();
+            project.insert(
+                "trust_level".to_string(),
+                TomlValue::String("trusted".to_string()),
+            );
+            project
+        }),
+    );
+    root.insert("projects".to_string(), TomlValue::Table(projects));
+
+    Ok(TomlValue::Table(root).to_string())
+}
+
+fn minimal_codex_config(cwd: &Path) -> String {
+    format!(
+        r#"model = "gpt-5.4"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+approvals_reviewer = "user"
+
+[projects."{cwd}"]
+trust_level = "trusted"
+"#,
+        cwd = cwd.display()
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -982,6 +1092,41 @@ mod tests {
         let state = shared.lock().unwrap();
         assert_eq!(state.thread_start_calls, 2);
         assert_eq!(state.thread_resume_calls, 1);
+    }
+
+    #[test]
+    fn sanitized_codex_config_removes_omx_runtime_sections() {
+        let source = r#"
+notify = ["node", "notify.js"]
+developer_instructions = "omx"
+model_provider = "crs"
+model = "gpt-5.4"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[features]
+codex_hooks = true
+
+[model_providers.crs]
+name = "crs"
+base_url = "https://example.com/v1"
+wire_api = "responses"
+requires_openai_auth = true
+env_key = "CRS_OAI_KEY"
+
+[mcp_servers.omx_state]
+command = "node"
+"#;
+
+        let sanitized = sanitize_codex_config(source, Path::new("/tmp/project")).unwrap();
+        assert!(sanitized.contains("model_provider = \"crs\""));
+        assert!(sanitized.contains("base_url = \"https://example.com/v1\""));
+        assert!(sanitized.contains("/tmp/project"));
+        assert!(sanitized.contains("trust_level = \"trusted\""));
+        assert!(!sanitized.contains("notify ="));
+        assert!(!sanitized.contains("developer_instructions"));
+        assert!(!sanitized.contains("mcp_servers"));
+        assert!(!sanitized.contains("codex_hooks"));
     }
 
     async fn run_mock_codex_server<R, W>(

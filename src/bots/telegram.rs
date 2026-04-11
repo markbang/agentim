@@ -50,36 +50,6 @@ impl TelegramBotChannel {
         }
     }
 
-    pub async fn set_webhook(&self, webhook_url: &str) -> Result<()> {
-        self.set_webhook_with_secret(webhook_url, None).await
-    }
-
-    pub async fn set_webhook_with_secret(
-        &self,
-        webhook_url: &str,
-        secret_token: Option<&str>,
-    ) -> Result<()> {
-        let client = reqwest::Client::new();
-        let url = format!("{}/setWebhook", self.api_url);
-        let mut params = serde_json::json!({
-            "url": webhook_url
-        });
-
-        if let Some(secret_token) = secret_token {
-            params["secret_token"] = serde_json::Value::String(secret_token.to_string());
-        }
-
-        let response = client
-            .post(&url)
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| AgentError::ChannelError(e.to_string()))?;
-        Self::ensure_api_ok(response).await?;
-
-        Ok(())
-    }
-
     pub async fn delete_webhook(&self, drop_pending_updates: bool) -> Result<()> {
         let client = reqwest::Client::new();
         let url = format!("{}/deleteWebhook", self.api_url);
@@ -215,7 +185,7 @@ impl Channel for TelegramBotChannel {
     }
 }
 
-pub async fn telegram_webhook_handler(
+pub async fn handle_telegram_update(
     agentim: Arc<AgentIM>,
     agent_id: &str,
     max_session_messages: Option<usize>,
@@ -272,7 +242,7 @@ pub async fn run_telegram_poll_once(
 
     for update in updates {
         next_offset = Some(update.update_id + 1);
-        if let Err(err) = telegram_webhook_handler(
+        if let Err(err) = handle_telegram_update(
             agentim.clone(),
             agent_id,
             options.max_messages,
@@ -302,9 +272,13 @@ pub async fn start_telegram_long_polling(
     state_file: Option<String>,
     state_backup_count: usize,
 ) -> Result<()> {
-    channel.delete_webhook(false).await?;
-
-    let mut next_offset = None;
+    channel.delete_webhook(true).await?;
+    let mut next_offset = channel
+        .get_updates(None, 0, 100)
+        .await?
+        .into_iter()
+        .map(|update| update.update_id + 1)
+        .max();
     loop {
         next_offset = run_telegram_poll_once(
             agentim.clone(),
@@ -496,5 +470,53 @@ mod tests {
 
         let _ = std::fs::remove_file(&state_file);
         let _ = std::fs::remove_file(format!("{}.bak.1", state_file));
+    }
+
+    #[tokio::test]
+    async fn telegram_long_polling_skips_stale_updates_on_start() {
+        let state = TelegramMockState::default();
+        state.updates.lock().unwrap().push(TelegramUpdate {
+            update_id: 50,
+            message: Some(TelegramMessage {
+                message_id: 5,
+                chat: TelegramChat { id: 111 },
+                text: Some("/start".to_string()),
+            }),
+        });
+        state.updates.lock().unwrap().push(TelegramUpdate {
+            update_id: 51,
+            message: Some(TelegramMessage {
+                message_id: 6,
+                chat: TelegramChat { id: 111 },
+                text: Some("fresh".to_string()),
+            }),
+        });
+        let (api_url, _handle) = telegram_mock_server(state.clone()).await;
+        let channel = Arc::new(test_channel(api_url));
+        let agentim = Arc::new(AgentIM::new());
+        agentim
+            .register_agent("default-agent".to_string(), Arc::new(EchoAgent))
+            .unwrap();
+        agentim
+            .register_channel(TELEGRAM_CHANNEL_ID.to_string(), channel.clone())
+            .unwrap();
+
+        let polling = tokio::spawn(start_telegram_long_polling(
+            agentim.clone(),
+            channel,
+            "default-agent".to_string(),
+            MessageHandlingOptions::default(),
+            None,
+            0,
+        ));
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        polling.abort();
+
+        let sent = state.sent_messages.lock().unwrap().clone();
+        assert!(
+            sent.is_empty(),
+            "stale updates should be skipped at startup"
+        );
     }
 }

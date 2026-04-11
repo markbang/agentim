@@ -1,4 +1,4 @@
-use agentim::bot_server::create_bot_router;
+use agentim::bots::telegram::{handle_telegram_update, TelegramUpdate};
 use agentim::bots::TELEGRAM_CHANNEL_ID;
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::codex::{CodexAgent, CodexBackendConfig};
@@ -6,15 +6,10 @@ use agentim::config::ChannelType;
 use agentim::manager::AgentIM;
 use agentim::Result;
 use async_trait::async_trait;
-use axum::{
-    body::Body,
-    http::{Request, StatusCode},
-};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tower::ServiceExt;
 
 struct CaptureChannel {
     id: String,
@@ -59,7 +54,7 @@ fn temp_python_script(name: &str, content: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn telegram_webhook_bridges_to_codex_app_server_backend() {
+async fn telegram_update_bridges_to_codex_app_server_backend() {
     let script = temp_python_script(
         "mock-codex-app-server",
         r#"#!/usr/bin/env python3
@@ -190,19 +185,13 @@ for raw in sys.stdin:
         )
         .unwrap();
 
-    let app = create_bot_router(agentim.clone());
-    let response = app
-        .oneshot(
-            Request::post("/telegram")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    r#"{"update_id":501,"message":{"message_id":5001,"chat":{"id":4242},"text":"hello codex"}}"#,
-                ))
-                .unwrap(),
-        )
+    let update: TelegramUpdate = serde_json::from_str(
+        r#"{"update_id":501,"message":{"message_id":5001,"chat":{"id":4242},"text":"hello codex"}}"#,
+    )
+    .unwrap();
+    handle_telegram_update(agentim.clone(), "default-agent", None, 10, None, update)
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
 
     let sent = sent_messages.lock().unwrap().clone();
     assert_eq!(

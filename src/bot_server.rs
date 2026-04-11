@@ -3,7 +3,6 @@ use crate::bots::discord::{discord_webhook_handler, DiscordMessage};
 use crate::bots::feishu::{feishu_webhook_handler, FeishuMessage};
 use crate::bots::qq::{qq_webhook_handler, QQMessage};
 use crate::bots::slack::{slack_webhook_handler, verify_signature_with_secret, SlackEvent};
-use crate::bots::telegram::{telegram_webhook_handler, TelegramUpdate};
 use crate::error::AgentError;
 use crate::manager::AgentIM;
 use axum::{
@@ -95,7 +94,6 @@ pub struct BotServerConfig {
     pub webhook_secret: Option<String>,
     pub webhook_signing_secret: Option<String>,
     pub webhook_max_skew_seconds: i64,
-    pub telegram_webhook_secret_token: Option<String>,
     pub discord_interaction_public_key: Option<String>,
     pub feishu_verification_token: Option<String>,
     pub slack_signing_secret: Option<String>,
@@ -104,7 +102,7 @@ pub struct BotServerConfig {
 }
 
 impl BotServerConfig {
-    fn resolve_agent<'a>(
+    pub fn resolve_agent<'a>(
         &'a self,
         channel: &str,
         user_id: &str,
@@ -138,7 +136,6 @@ impl Default for BotServerConfig {
             webhook_secret: None,
             webhook_signing_secret: None,
             webhook_max_skew_seconds: 300,
-            telegram_webhook_secret_token: None,
             discord_interaction_public_key: None,
             feishu_verification_token: None,
             slack_signing_secret: None,
@@ -178,7 +175,6 @@ struct ReviewResponse {
     webhook_secret_enabled: bool,
     webhook_signing_enabled: bool,
     webhook_max_skew_seconds: i64,
-    telegram_webhook_secret_token_enabled: bool,
     discord_interaction_public_key_enabled: bool,
     feishu_verification_token_enabled: bool,
     slack_signing_secret_enabled: bool,
@@ -375,22 +371,6 @@ fn authorize_signed_webhook(
     Ok(())
 }
 
-fn authorize_telegram_secret_token(headers: &HeaderMap, state: &AppState) -> Result<(), String> {
-    let Some(expected) = state.config.telegram_webhook_secret_token.as_deref() else {
-        return Ok(());
-    };
-
-    let provided = headers
-        .get("x-telegram-bot-api-secret-token")
-        .and_then(|value| value.to_str().ok());
-
-    if provided != Some(expected) {
-        return Err("missing or invalid x-telegram-bot-api-secret-token".to_string());
-    }
-
-    Ok(())
-}
-
 fn authorize_discord_interaction_signature(
     headers: &HeaderMap,
     body: &Bytes,
@@ -516,7 +496,6 @@ async fn reviewz(
                 webhook_secret_enabled: true,
                 webhook_signing_enabled: false,
                 webhook_max_skew_seconds: 0,
-                telegram_webhook_secret_token_enabled: false,
                 discord_interaction_public_key_enabled: false,
                 feishu_verification_token_enabled: false,
                 slack_signing_secret_enabled: false,
@@ -548,10 +527,6 @@ async fn reviewz(
             webhook_secret_enabled: state.config.webhook_secret.is_some(),
             webhook_signing_enabled: state.config.webhook_signing_secret.is_some(),
             webhook_max_skew_seconds: state.config.webhook_max_skew_seconds,
-            telegram_webhook_secret_token_enabled: state
-                .config
-                .telegram_webhook_secret_token
-                .is_some(),
             discord_interaction_public_key_enabled: state
                 .config
                 .discord_interaction_public_key
@@ -561,64 +536,6 @@ async fn reviewz(
             dingtalk_secret_enabled: state.config.dingtalk_secret.is_some(),
         }),
     )
-}
-
-async fn telegram_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> (StatusCode, String) {
-    if let Err(err) = authorize_shared(&headers, &state) {
-        return (StatusCode::UNAUTHORIZED, err);
-    }
-    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
-        return (StatusCode::UNAUTHORIZED, err);
-    }
-    if let Err(err) = authorize_telegram_secret_token(&headers, &state) {
-        return (StatusCode::UNAUTHORIZED, err);
-    }
-
-    let update: TelegramUpdate = match parse_json_body(&body) {
-        Ok(update) => update,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
-    };
-
-    let agent_id = update
-        .message
-        .as_ref()
-        .map(|message| {
-            let user_id = message.chat.id.to_string();
-            state
-                .config
-                .resolve_agent(
-                    "telegram",
-                    &user_id,
-                    &user_id,
-                    state.config.telegram_agent_id.as_str(),
-                )
-                .to_string()
-        })
-        .unwrap_or_else(|| state.config.telegram_agent_id.clone());
-
-    match telegram_webhook_handler(
-        state.agentim.clone(),
-        &agent_id,
-        state.config.max_session_messages,
-        state.config.context_message_limit,
-        state.config.agent_timeout_ms,
-        update,
-    )
-    .await
-    {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
-        Err(err) => {
-            tracing::error!("telegram webhook failed: {}", err);
-            (webhook_error_status(&err), err.to_string())
-        }
-    }
 }
 
 async fn discord_webhook(
@@ -955,7 +872,6 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/reviewz", get(reviewz))
-        .route("/telegram", post(telegram_webhook))
         .route("/discord", post(discord_webhook))
         .route("/feishu", post(feishu_webhook))
         .route("/qq", post(qq_webhook))
