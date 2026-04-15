@@ -16,20 +16,22 @@ args=()
 [[ -n "${DISCORD_AGENT:-}" ]] && args+=(--discord-agent "$DISCORD_AGENT")
 [[ -n "${FEISHU_AGENT:-}" ]] && args+=(--feishu-agent "$FEISHU_AGENT")
 [[ -n "${QQ_AGENT:-}" ]] && args+=(--qq-agent "$QQ_AGENT")
-[[ -n "${CODEX_COMMAND:-}" ]] && args+=(--codex-command "$CODEX_COMMAND")
-[[ -n "${CODEX_CWD:-}" ]] && args+=(--codex-cwd "$CODEX_CWD")
-if [[ -n "${CODEX_ARGS:-}" ]]; then
+[[ -n "${LINE_AGENT:-}" ]] && args+=(--line-agent "$LINE_AGENT")
+[[ -n "${WECHATWORK_AGENT:-}" ]] && args+=(--wechatwork-agent "$WECHATWORK_AGENT")
+[[ -n "${ACP_COMMAND:-}" ]] && args+=(--acp-command "$ACP_COMMAND")
+[[ -n "${ACP_CWD:-}" ]] && args+=(--acp-cwd "$ACP_CWD")
+if [[ -n "${ACP_ARGS:-}" ]]; then
   # shellcheck disable=SC2206
-  codex_args=($CODEX_ARGS)
-  for arg in "${codex_args[@]}"; do
-    args+=(--codex-arg "$arg")
+  acp_args=($ACP_ARGS)
+  for arg in "${acp_args[@]}"; do
+    args+=(--acp-arg "$arg")
   done
 fi
-if [[ -n "${CODEX_ENV_VARS:-}" ]]; then
+if [[ -n "${ACP_ENV_VARS:-}" ]]; then
   # shellcheck disable=SC2206
-  codex_env_vars=($CODEX_ENV_VARS)
-  for item in "${codex_env_vars[@]}"; do
-    args+=(--codex-env "$item")
+  acp_env_vars=($ACP_ENV_VARS)
+  for item in "${acp_env_vars[@]}"; do
+    args+=(--acp-env "$item")
   done
 fi
 [[ -n "${AGENTIM_STATE_FILE:-}" ]] && args+=(--state-file "$AGENTIM_STATE_FILE")
@@ -70,23 +72,43 @@ elif [[ -n "${QQ_TOKEN:-}" ]]; then
   args+=(--qq-token "$QQ_TOKEN")
 fi
 
+if [[ -n "${LINE_CHANNEL_TOKEN:-}" ]]; then
+  args+=(--line-channel-token "$LINE_CHANNEL_TOKEN")
+fi
+if [[ -n "${LINE_CHANNEL_SECRET:-}" ]]; then
+  args+=(--line-channel-secret "$LINE_CHANNEL_SECRET")
+fi
+
+if [[ -n "${WECHATWORK_CORP_ID:-}" || -n "${WECHATWORK_AGENT_ID:-}" || -n "${WECHATWORK_SECRET:-}" ]]; then
+  : "${WECHATWORK_CORP_ID:?WECHATWORK_CORP_ID must be set with WECHATWORK_AGENT_ID and WECHATWORK_SECRET}"
+  : "${WECHATWORK_AGENT_ID:?WECHATWORK_AGENT_ID must be set with WECHATWORK_CORP_ID and WECHATWORK_SECRET}"
+  : "${WECHATWORK_SECRET:?WECHATWORK_SECRET must be set with WECHATWORK_CORP_ID and WECHATWORK_AGENT_ID}"
+  args+=(
+    --wechatwork-corp-id "$WECHATWORK_CORP_ID"
+    --wechatwork-agent-id "$WECHATWORK_AGENT_ID"
+    --wechatwork-secret "$WECHATWORK_SECRET"
+  )
+fi
+
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║          AgentIM - Multi-Channel AI Agent Manager        ║"
 echo "║               Environment-driven startup                 ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo
 
-echo "Agent:   ${AGENT:-from config or binary default (codex)}"
+echo "Agent:   ${AGENT:-from config or binary default (acp)}"
 echo "Address: ${ADDR:-from config or binary default (127.0.0.1:8080)}"
-[[ -n "${CODEX_COMMAND:-}" ]] && echo "Codex command: ${CODEX_COMMAND}"
-[[ -n "${CODEX_CWD:-}" ]] && echo "Codex cwd: ${CODEX_CWD}"
-[[ -n "${CODEX_ARGS:-}" ]] && echo "Codex args: ${CODEX_ARGS}"
+[[ -n "${ACP_COMMAND:-}" ]] && echo "ACP command: ${ACP_COMMAND}"
+[[ -n "${ACP_CWD:-}" ]] && echo "ACP cwd: ${ACP_CWD}"
+[[ -n "${ACP_ARGS:-}" ]] && echo "ACP args: ${ACP_ARGS}"
 [[ -n "${AGENTIM_CONFIG_FILE:-}" ]] && echo "Config:  ${AGENTIM_CONFIG_FILE}"
 [[ -n "${TELEGRAM_TOKEN:-}" ]] && echo "Telegram: enabled"
 [[ -n "${DISCORD_TOKEN:-}" ]] && echo "Discord:  enabled"
 [[ -n "${DISCORD_INTERACTION_PUBLIC_KEY:-}" ]] && echo "Discord native signature: enabled"
 [[ -n "${FEISHU_APP_ID:-}${FEISHU_TOKEN:-}" ]] && echo "Feishu:   enabled"
 [[ -n "${QQ_BOT_ID:-}${QQ_TOKEN:-}" ]] && echo "QQ:       enabled"
+[[ -n "${LINE_CHANNEL_TOKEN:-}" ]] && echo "LINE:     enabled"
+[[ -n "${WECHATWORK_CORP_ID:-}${WECHATWORK_AGENT_ID:-}${WECHATWORK_SECRET:-}" ]] && echo "WeChat Work: enabled"
 [[ -n "${AGENTIM_WEBHOOK_SECRET:-}" ]] && echo "Shared auth: enabled"
 [[ -n "${AGENTIM_WEBHOOK_SIGNING_SECRET:-}" ]] && echo "Signed auth: enabled"
 [[ -n "${FEISHU_WEBHOOK_VERIFICATION_TOKEN:-}" ]] && echo "Feishu verification token: enabled"

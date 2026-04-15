@@ -312,7 +312,7 @@ mod tests {
     #[async_trait]
     impl Agent for EchoAgent {
         fn agent_type(&self) -> AgentType {
-            AgentType::OpenAI
+            AgentType::Acp
         }
 
         fn id(&self) -> &str {

@@ -15,12 +15,13 @@ cargo fmt --check        # format check
 Validate startup config without connecting to any external services:
 
 ```bash
-cargo run -- --dry-run --agent openai --openai-api-key test-key
+cargo run -- --dry-run --agent acp --acp-command acp
 ```
 
 ## Architecture
 
-- `src/agent.rs` - `Agent` trait + `OpenAiCompatibleAgent` (calls any /chat/completions API)
+- `src/acp.rs` - `AcpAgent` ACP session transport
+- `src/agent.rs` - `Agent` trait definition
 - `src/channel.rs` - `Channel` trait definition
 - `src/bots/*.rs` - Real platform channel implementations (Telegram, Discord, Feishu, QQ, Slack, DingTalk, WeChat Work, LINE)
 - `src/manager.rs` - `AgentIM` orchestrator: agent/channel/session registry, message routing
@@ -37,3 +38,4 @@ cargo run -- --dry-run --agent openai --openai-api-key test-key
 - Every webhook handler follows: authorize -> parse -> route -> respond -> persist
 - Tests use in-process Axum via `tower::ServiceExt::oneshot`
 - `main.rs` uses the library crate (`use agentim::*`), not `mod` declarations
+- New backend integrations should go through ACP compatibility rather than adding runtime-specific transport paths

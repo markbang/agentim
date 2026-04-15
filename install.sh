@@ -94,6 +94,6 @@ echo "==> Installed agentim to ${INSTALL_DIR}/agentim"
 echo
 echo "Next steps:"
 echo "  1. Make sure ${INSTALL_DIR} is on your PATH"
-echo "  2. Log into Codex locally if needed"
+echo "  2. Start your ACP-compatible agent backend"
 echo "  3. Start AgentIM:"
 echo "     agentim --telegram-token YOUR_TELEGRAM_BOT_TOKEN"

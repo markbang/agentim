@@ -526,7 +526,7 @@ mod tests {
     #[async_trait]
     impl Agent for MockAgent {
         fn agent_type(&self) -> AgentType {
-            AgentType::OpenAI
+            AgentType::Acp
         }
 
         fn id(&self) -> &str {

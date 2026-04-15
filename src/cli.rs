@@ -61,7 +61,35 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_secret: Option<String>,
 
-    /// Default agent type (codex by default). `codex` talks to a local `codex app-server` backend.
+    /// LINE channel access token
+    #[arg(long)]
+    pub line_channel_token: Option<String>,
+
+    /// LINE channel secret for webhook signature verification
+    #[arg(long)]
+    pub line_channel_secret: Option<String>,
+
+    /// Agent override for LINE traffic
+    #[arg(long)]
+    pub line_agent: Option<String>,
+
+    /// WeChat Work corp id
+    #[arg(long)]
+    pub wechatwork_corp_id: Option<String>,
+
+    /// WeChat Work agent id
+    #[arg(long)]
+    pub wechatwork_agent_id: Option<String>,
+
+    /// WeChat Work app secret
+    #[arg(long)]
+    pub wechatwork_secret: Option<String>,
+
+    /// Agent override for WeChat Work traffic
+    #[arg(long)]
+    pub wechatwork_agent: Option<String>,
+
+    /// Default agent type (acp by default). Only `acp` is supported by the runtime.
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -89,21 +117,21 @@ pub struct Args {
     #[arg(long)]
     pub dingtalk_agent: Option<String>,
 
-    /// Optional Codex app-server command override (default: `codex`)
+    /// ACP backend command override (default: `acp`)
     #[arg(long)]
-    pub codex_command: Option<String>,
+    pub acp_command: Option<String>,
 
-    /// Optional extra argument passed to the Codex backend command; may be repeated
-    #[arg(long = "codex-arg")]
-    pub codex_args: Vec<String>,
+    /// Optional extra argument passed to the ACP backend command; may be repeated
+    #[arg(long = "acp-arg")]
+    pub acp_args: Vec<String>,
 
-    /// Optional working directory used for the Codex backend process and threads (default: current directory)
+    /// Optional working directory used for the ACP backend process and sessions (default: current directory)
     #[arg(long)]
-    pub codex_cwd: Option<String>,
+    pub acp_cwd: Option<String>,
 
-    /// Optional environment variable passed to the Codex backend as KEY=VALUE; may be repeated
-    #[arg(long = "codex-env")]
-    pub codex_env: Vec<String>,
+    /// Optional environment variable passed to the ACP backend as KEY=VALUE; may be repeated
+    #[arg(long = "acp-env")]
+    pub acp_env: Vec<String>,
 
     /// Load runtime options from this JSON file; CLI flags still take precedence
     #[arg(long)]

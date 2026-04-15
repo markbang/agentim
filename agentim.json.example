@@ -1,20 +1,20 @@
 {
-  "agent": "codex",
-  "codex_command": "codex",
-  "codex_args": ["app-server"],
-  "codex_cwd": ".",
+  "agent": "acp",
+  "acp_command": "acp",
+  "acp_args": [],
+  "acp_cwd": ".",
   "routing_rules": [
     {
       "channel": "telegram",
       "user_id": "vip-user",
       "priority": 10,
-      "agent": "codex"
+      "agent": "acp"
     },
     {
       "channel": "discord",
       "reply_target_prefix": "review-",
       "priority": 1,
-      "agent": "codex"
+      "agent": "acp"
     }
   ],
   "telegram_token": "YOUR_TELEGRAM_TOKEN",
@@ -23,6 +23,11 @@
   "discord_interaction_public_key": "YOUR_DISCORD_INTERACTION_PUBLIC_KEY",
   "feishu_app_id": "YOUR_FEISHU_APP_ID",
   "feishu_app_secret": "YOUR_FEISHU_APP_SECRET",
+  "line_channel_token": "YOUR_LINE_CHANNEL_ACCESS_TOKEN",
+  "line_channel_secret": "YOUR_LINE_CHANNEL_SECRET",
+  "wechatwork_corp_id": "YOUR_WECHATWORK_CORP_ID",
+  "wechatwork_agent_id": "YOUR_WECHATWORK_AGENT_ID",
+  "wechatwork_secret": "YOUR_WECHATWORK_SECRET",
   "qq_bot_id": "YOUR_QQ_BOT_ID",
   "qq_bot_token": "YOUR_QQ_BOT_TOKEN",
   "slack_token": "YOUR_SLACK_BOT_TOKEN",

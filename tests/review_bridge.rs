@@ -1,11 +1,14 @@
-use agentim::agent::{Agent, OpenAiCompatibleAgent};
+use agentim::agent::Agent;
 use agentim::bot_server::{
     create_bot_router as create_runtime_bot_router,
     create_bot_router_with_config as create_runtime_bot_router_with_config, BotServerConfig,
     RoutingRule,
 };
 use agentim::bots::telegram::{handle_telegram_update, TelegramUpdate};
-use agentim::bots::{DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID};
+use agentim::bots::{
+    DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, LINE_CHANNEL_ID, QQ_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
+    WECHATWORK_CHANNEL_ID,
+};
 use agentim::channel::{Channel, ChannelMessage};
 use agentim::config::{AgentType, ChannelType};
 use agentim::error::AgentError;
@@ -38,7 +41,7 @@ struct ReviewAgent {
 #[async_trait]
 impl Agent for ReviewAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::OpenAI
+        AgentType::Acp
     }
 
     fn id(&self) -> &str {
@@ -209,6 +212,8 @@ fn review_manager(sent_messages: Arc<Mutex<Vec<(String, String, String)>>>) -> A
         (DISCORD_CHANNEL_ID, ChannelType::Discord),
         (FEISHU_CHANNEL_ID, ChannelType::Feishu),
         (QQ_CHANNEL_ID, ChannelType::QQ),
+        (LINE_CHANNEL_ID, ChannelType::Line),
+        (WECHATWORK_CHANNEL_ID, ChannelType::WeChatWork),
     ] {
         register_review_channel(&agentim, sent_messages.clone(), id, channel_type);
     }
@@ -297,10 +302,10 @@ fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerConfig)
     )
 }
 
-async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
+async fn spawn_mock_session_agent_server() -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new()
         .route(
-            "/v1/chat/completions",
+            "/messages",
             post(|Json(payload): Json<serde_json::Value>| async move {
                 let last_content = payload["messages"]
                     .as_array()
@@ -309,13 +314,13 @@ async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
                     .and_then(|content| content.as_str())
                     .unwrap_or_default();
                 Json(serde_json::json!({
-                    "choices": [{"message": {"content": format!("openai:{}", last_content)}}]
+                    "reply": format!("backend:{}", last_content)
                 }))
             }),
         )
         .route(
-            "/v1/models",
-            get(|| async { Json(serde_json::json!({"data": [{"id": "gpt-4o-mini"}]})) }),
+            "/healthz",
+            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
         );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -324,14 +329,14 @@ async fn spawn_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
         axum::serve(listener, app).await.unwrap();
     });
 
-    (format!("http://{}/v1", addr), handle)
+    (format!("http://{}", addr), handle)
 }
 
-async fn spawn_flaky_openai_mock_server() -> (String, tokio::task::JoinHandle<()>) {
+async fn spawn_flaky_mock_session_agent_server() -> (String, tokio::task::JoinHandle<()>) {
     let attempts = Arc::new(AtomicUsize::new(0));
     let app = Router::new()
         .route(
-            "/v1/chat/completions",
+            "/messages",
             post({
                 let attempts = attempts.clone();
                 move |Json(payload): Json<serde_json::Value>| {
@@ -354,7 +359,7 @@ async fn spawn_flaky_openai_mock_server() -> (String, tokio::task::JoinHandle<()
                         (
                             StatusCode::OK,
                             Json(serde_json::json!({
-                                "choices": [{"message": {"content": format!("openai-retry:{}", last_content)}}]
+                                "reply": format!("backend-retry:{}", last_content)
                             })),
                         )
                     }
@@ -362,8 +367,8 @@ async fn spawn_flaky_openai_mock_server() -> (String, tokio::task::JoinHandle<()
             }),
         )
         .route(
-            "/v1/models",
-            get(|| async { Json(serde_json::json!({"data": [{"id": "gpt-4o-mini"}]})) }),
+            "/healthz",
+            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
         );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -372,7 +377,95 @@ async fn spawn_flaky_openai_mock_server() -> (String, tokio::task::JoinHandle<()
         axum::serve(listener, app).await.unwrap();
     });
 
-    (format!("http://{}/v1", addr), handle)
+    (format!("http://{}", addr), handle)
+}
+
+struct HttpMockAgent {
+    id: String,
+    base_url: String,
+    max_retries: usize,
+    client: reqwest::Client,
+}
+
+impl HttpMockAgent {
+    fn new(id: &str, base_url: String) -> Self {
+        Self::new_with_retries(id, base_url, 0)
+    }
+
+    fn new_with_retries(id: &str, base_url: String, max_retries: usize) -> Self {
+        Self {
+            id: id.to_string(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            max_retries,
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl Agent for HttpMockAgent {
+    fn agent_type(&self) -> AgentType {
+        AgentType::Acp
+    }
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    async fn send_message(&self, messages: Vec<Message>) -> Result<String> {
+        let payload = serde_json::json!({ "messages": messages });
+
+        for attempt in 0..=self.max_retries {
+            let response = self
+                .client
+                .post(format!("{}/messages", self.base_url))
+                .json(&payload)
+                .send()
+                .await;
+
+            match response {
+                Ok(response) if response.status().is_success() => {
+                    let response = response.json::<serde_json::Value>().await?;
+                    return response["reply"]
+                        .as_str()
+                        .map(|content| content.to_string())
+                        .ok_or_else(|| {
+                            AgentError::ApiError("mock backend response missing reply".to_string())
+                        });
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response.text().await.unwrap_or_default();
+                    if status.is_server_error() && attempt < self.max_retries {
+                        continue;
+                    }
+                    return Err(AgentError::ApiError(format!(
+                        "mock backend request failed with {}: {}",
+                        status, body
+                    )));
+                }
+                Err(err) => {
+                    if attempt < self.max_retries {
+                        continue;
+                    }
+                    return Err(err.into());
+                }
+            }
+        }
+
+        Err(AgentError::Unknown(
+            "mock backend retry loop exited unexpectedly".to_string(),
+        ))
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        self.client
+            .get(format!("{}/healthz", self.base_url))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
 }
 
 struct ContextWindowAgent;
@@ -380,7 +473,7 @@ struct ContextWindowAgent;
 #[async_trait]
 impl Agent for ContextWindowAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::OpenAI
+        AgentType::Acp
     }
 
     fn id(&self) -> &str {
@@ -405,7 +498,7 @@ struct SlowAgent;
 #[async_trait]
 impl Agent for SlowAgent {
     fn agent_type(&self) -> AgentType {
-        AgentType::OpenAI
+        AgentType::Acp
     }
 
     fn id(&self) -> &str {
@@ -484,8 +577,36 @@ async fn functionality_reviewer_routes_all_platform_webhooks() {
         .unwrap();
     assert_eq!(qq.status(), StatusCode::OK);
 
-    assert_eq!(agentim.list_sessions().len(), 4);
-    assert_eq!(sent_messages.lock().unwrap().len(), 4);
+    let line = app
+        .clone()
+        .oneshot(
+            Request::post("/line")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"destination":"dest","events":[{"type":"message","replyToken":"reply-token","source":{"type":"user","userId":"user-line"},"message":{"id":"msg-line","type":"text","text":"hello line"}}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(line.status(), StatusCode::OK);
+
+    let wechatwork = app
+        .clone()
+        .oneshot(
+            Request::post("/wechatwork")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"ToUserName":"agent","FromUserName":"user-wechatwork","CreateTime":1,"MsgType":"text","Content":"hello wechatwork","ChatId":"chat-wechatwork"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(wechatwork.status(), StatusCode::OK);
+
+    assert_eq!(agentim.list_sessions().len(), 6);
+    assert_eq!(sent_messages.lock().unwrap().len(), 6);
 }
 
 #[tokio::test]
@@ -580,19 +701,14 @@ async fn usability_reviewer_reuses_session_per_user_and_channel() {
 }
 
 #[tokio::test]
-async fn functionality_reviewer_bridges_webhooks_to_openai_compatible_agent() {
-    let (base_url, server_handle) = spawn_openai_mock_server().await;
+async fn functionality_reviewer_bridges_webhooks_to_mock_agent() {
+    let (base_url, server_handle) = spawn_mock_session_agent_server().await;
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = Arc::new(AgentIM::new());
     agentim
         .register_agent(
             "default-agent".to_string(),
-            Arc::new(OpenAiCompatibleAgent::new(
-                "default-agent".to_string(),
-                "test-key".to_string(),
-                base_url,
-                "gpt-4o-mini".to_string(),
-            )),
+            Arc::new(HttpMockAgent::new("default-agent", base_url)),
         )
         .unwrap();
     register_review_channel(
@@ -609,7 +725,7 @@ async fn functionality_reviewer_bridges_webhooks_to_openai_compatible_agent() {
             Request::post("/telegram")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"update_id":101,"message":{"message_id":1001,"chat":{"id":4242},"text":"hello openai"}}"#,
+                    r#"{"update_id":101,"message":{"message_id":1001,"chat":{"id":4242},"text":"hello backend"}}"#,
                 ))
                 .unwrap(),
         )
@@ -621,29 +737,25 @@ async fn functionality_reviewer_bridges_webhooks_to_openai_compatible_agent() {
     assert!(sent.contains(&(
         TELEGRAM_CHANNEL_ID.to_string(),
         "4242".to_string(),
-        "openai:hello openai".to_string(),
+        "backend:hello backend".to_string(),
     )));
 
     server_handle.abort();
 }
 
 #[tokio::test]
-async fn functionality_reviewer_retries_transient_openai_backend_failures() {
-    let (base_url, server_handle) = spawn_flaky_openai_mock_server().await;
+async fn functionality_reviewer_retries_transient_mock_agent_failures() {
+    let (base_url, server_handle) = spawn_flaky_mock_session_agent_server().await;
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = Arc::new(AgentIM::new());
     agentim
         .register_agent(
             "default-agent".to_string(),
-            Arc::new(
-                OpenAiCompatibleAgent::new(
-                    "default-agent".to_string(),
-                    "test-key".to_string(),
-                    base_url,
-                    "gpt-4o-mini".to_string(),
-                )
-                .with_max_retries(1),
-            ),
+            Arc::new(HttpMockAgent::new_with_retries(
+                "default-agent",
+                base_url,
+                1,
+            )),
         )
         .unwrap();
     register_review_channel(
@@ -672,7 +784,7 @@ async fn functionality_reviewer_retries_transient_openai_backend_failures() {
     assert!(sent.contains(&(
         TELEGRAM_CHANNEL_ID.to_string(),
         "4343".to_string(),
-        "openai-retry:retry me".to_string(),
+        "backend-retry:retry me".to_string(),
     )));
 
     server_handle.abort();
@@ -1055,18 +1167,13 @@ async fn routing_reviewer_matches_reply_target_prefix() {
 
 #[tokio::test]
 async fn readiness_reviewer_surfaces_upstream_agent_failures_as_bad_gateway() {
-    let (base_url, server_handle) = spawn_flaky_openai_mock_server().await;
+    let (base_url, server_handle) = spawn_flaky_mock_session_agent_server().await;
     let sent_messages = Arc::new(Mutex::new(Vec::new()));
     let agentim = Arc::new(AgentIM::new());
     agentim
         .register_agent(
             "default-agent".to_string(),
-            Arc::new(OpenAiCompatibleAgent::new(
-                "default-agent".to_string(),
-                "test-key".to_string(),
-                base_url,
-                "gpt-4o-mini".to_string(),
-            )),
+            Arc::new(HttpMockAgent::new("default-agent", base_url)),
         )
         .unwrap();
     register_review_channel(
@@ -2082,6 +2189,11 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
     let review_json: serde_json::Value = serde_json::from_slice(&review_bytes).unwrap();
     assert_eq!(review_json["sessions"], 1);
     assert_eq!(review_json["platform_agents"]["telegram"], "default-agent");
+    assert_eq!(review_json["platform_agents"]["line"], "default-agent");
+    assert_eq!(
+        review_json["platform_agents"]["wechatwork"],
+        "default-agent"
+    );
     assert_eq!(review_json["max_session_messages"], 6);
     assert_eq!(review_json["context_message_limit"], 4);
     assert_eq!(review_json["agent_timeout_ms"], 25);
@@ -2095,21 +2207,21 @@ async fn ops_reviewer_reports_runtime_status_and_review_config() {
 }
 
 #[test]
-fn usability_reviewer_dry_run_accepts_codex_default_agent_config() {
+fn usability_reviewer_dry_run_accepts_acp_default_agent_config() {
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
-        .args(["--dry-run", "--agent", "codex"])
+        .args(["--dry-run", "--agent", "acp"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'codex' registered"));
-    assert!(stdout.contains("Codex backend bootstrap: codex app-server"));
+    assert!(stdout.contains("Default agent 'acp' registered"));
+    assert!(stdout.contains("ACP backend bootstrap: acp"));
     assert!(stdout.contains("Dry run complete"));
 }
 
 #[test]
-fn usability_reviewer_dry_run_accepts_minimal_telegram_codex_setup() {
+fn usability_reviewer_dry_run_accepts_minimal_telegram_acp_setup() {
     let output = Command::new(env!("CARGO_BIN_EXE_agentim"))
         .args(["--dry-run", "--telegram-token", "dummy-telegram-token"])
         .output()
@@ -2117,7 +2229,7 @@ fn usability_reviewer_dry_run_accepts_minimal_telegram_codex_setup() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'codex' registered"));
+    assert!(stdout.contains("Default agent 'acp' registered"));
     assert!(stdout.contains("Skipping Telegram health check in dry-run mode"));
     assert!(stdout.contains("Dry run complete"));
 }
@@ -2145,10 +2257,10 @@ fn usability_reviewer_binary_dry_run_exits_cleanly() {
 fn usability_reviewer_loads_runtime_config_file() {
     let config_path = temp_state_file();
     let config = r#"{
-  "agent": "codex",
+  "agent": "acp",
   "routing_rules": [
-    {"channel": "telegram", "user_id": "vip-user", "agent": "codex"},
-    {"channel": "discord", "reply_target_prefix": "review-", "agent": "codex"}
+    {"channel": "telegram", "user_id": "vip-user", "agent": "acp"},
+    {"channel": "discord", "reply_target_prefix": "review-", "agent": "acp"}
   ],
   "state_file": ".agentim/test-sessions.json",
   "state_backup_count": 2,
@@ -2171,8 +2283,8 @@ fn usability_reviewer_loads_runtime_config_file() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Default agent 'codex' registered"));
-    assert!(stdout.contains("Codex backend bootstrap: codex app-server"));
+    assert!(stdout.contains("Default agent 'acp' registered"));
+    assert!(stdout.contains("ACP backend bootstrap: acp"));
     assert!(stdout.contains("Loaded 2 routing rule"));
     assert!(stdout.contains("State snapshot rotation enabled (2 backup file(s))"));
     assert!(stdout.contains("Session history will be trimmed to 4 message"));
@@ -2207,6 +2319,16 @@ fn usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credent
             "app:secret",
             "--qq-token",
             "bot:token",
+            "--line-channel-token",
+            "line-token",
+            "--line-channel-secret",
+            "line-secret",
+            "--wechatwork-corp-id",
+            "corp-id",
+            "--wechatwork-agent-id",
+            "agent-id",
+            "--wechatwork-secret",
+            "wechatwork-secret",
         ])
         .output()
         .unwrap();
@@ -2217,5 +2339,7 @@ fn usability_reviewer_dry_run_skips_live_channel_health_checks_for_dummy_credent
     assert!(stdout.contains("Skipping Discord health check in dry-run mode"));
     assert!(stdout.contains("Skipping Feishu health check in dry-run mode"));
     assert!(stdout.contains("Skipping QQ health check in dry-run mode"));
+    assert!(stdout.contains("Skipping LINE health check in dry-run mode"));
+    assert!(stdout.contains("Skipping WeChat Work health check in dry-run mode"));
     assert!(stdout.contains("Dry run complete"));
 }

@@ -1,13 +1,14 @@
+use agentim::acp::{AcpAgent, AcpBackendConfig};
 use agentim::agent::{self};
 use agentim::bot_server::{self, BotServerConfig, RoutingRule};
 use agentim::bots::{
-    DingTalkBotChannel, DiscordBotChannel, FeishuBotChannel, QQBotChannel, SlackBotChannel,
-    TelegramBotChannel, DINGTALK_CHANNEL_ID, DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, QQ_CHANNEL_ID,
-    SLACK_CHANNEL_ID, TELEGRAM_CHANNEL_ID,
+    DingTalkBotChannel, DiscordBotChannel, FeishuBotChannel, LineBotChannel, QQBotChannel,
+    SlackBotChannel, TelegramBotChannel, WeChatWorkBotChannel, DINGTALK_CHANNEL_ID,
+    DISCORD_CHANNEL_ID, FEISHU_CHANNEL_ID, LINE_CHANNEL_ID, QQ_CHANNEL_ID, SLACK_CHANNEL_ID,
+    TELEGRAM_CHANNEL_ID, WECHATWORK_CHANNEL_ID,
 };
 use agentim::channel::Channel;
 use agentim::cli::{self, Args};
-use agentim::codex::{CodexAgent, CodexBackendConfig};
 use agentim::manager::{AgentIM, MessageHandlingOptions};
 use clap::Parser;
 use serde::Deserialize;
@@ -33,12 +34,14 @@ struct RuntimeConfig {
     qq_agent: Option<String>,
     slack_agent: Option<String>,
     dingtalk_agent: Option<String>,
-    codex_command: Option<String>,
+    line_agent: Option<String>,
+    wechatwork_agent: Option<String>,
+    acp_command: Option<String>,
     #[serde(default)]
-    codex_args: Vec<String>,
-    codex_cwd: Option<String>,
+    acp_args: Vec<String>,
+    acp_cwd: Option<String>,
     #[serde(default)]
-    codex_env: HashMap<String, String>,
+    acp_env: HashMap<String, String>,
     #[serde(default)]
     routing_rules: Vec<RuntimeRoutingRuleConfig>,
     telegram_token: Option<String>,
@@ -52,6 +55,11 @@ struct RuntimeConfig {
     slack_signing_secret: Option<String>,
     dingtalk_token: Option<String>,
     dingtalk_secret: Option<String>,
+    line_channel_token: Option<String>,
+    line_channel_secret: Option<String>,
+    wechatwork_corp_id: Option<String>,
+    wechatwork_agent_id: Option<String>,
+    wechatwork_secret: Option<String>,
     qq_token: Option<String>,
     qq_bot_id: Option<String>,
     qq_bot_token: Option<String>,
@@ -139,28 +147,21 @@ fn parse_env_overrides(
 
 #[derive(Clone, Default)]
 struct AgentRuntimeOptions {
-    codex_command: Option<String>,
-    codex_args: Vec<String>,
-    codex_cwd: Option<PathBuf>,
-    codex_env: HashMap<String, String>,
+    acp_command: Option<String>,
+    acp_args: Vec<String>,
+    acp_cwd: Option<PathBuf>,
+    acp_env: HashMap<String, String>,
 }
 
-fn build_codex_backend_config(options: &AgentRuntimeOptions) -> anyhow::Result<CodexBackendConfig> {
-    Ok(CodexBackendConfig {
+fn build_acp_backend_config(options: &AgentRuntimeOptions) -> anyhow::Result<AcpBackendConfig> {
+    Ok(AcpBackendConfig {
         command: options
-            .codex_command
+            .acp_command
             .clone()
-            .unwrap_or_else(|| "codex".to_string()),
-        args: if options.codex_args.is_empty() {
-            vec!["app-server".to_string()]
-        } else {
-            options.codex_args.clone()
-        },
-        cwd: options
-            .codex_cwd
-            .clone()
-            .unwrap_or(std::env::current_dir()?),
-        env: options.codex_env.clone(),
+            .unwrap_or_else(|| "acp".to_string()),
+        args: options.acp_args.clone(),
+        cwd: options.acp_cwd.clone().unwrap_or(std::env::current_dir()?),
+        env: options.acp_env.clone(),
     })
 }
 
@@ -170,12 +171,12 @@ fn build_agent(
     options: &AgentRuntimeOptions,
 ) -> anyhow::Result<Arc<dyn agent::Agent>> {
     match agent_type {
-        "codex" => Ok(Arc::new(CodexAgent::new(
+        "acp" => Ok(Arc::new(AcpAgent::new(
             id.to_string(),
-            build_codex_backend_config(options)?,
+            build_acp_backend_config(options)?,
         ))),
         other => Err(anyhow::anyhow!(
-            "Unknown agent type '{}'. Supported: codex",
+            "Unknown agent type '{}'. Only 'acp' is supported.",
             other
         )),
     }
@@ -217,19 +218,21 @@ async fn main() -> anyhow::Result<()> {
     let agentim = AgentIM::new();
 
     let default_agent_type =
-        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "codex".to_string());
+        merge_option(args.agent, runtime_config.agent).unwrap_or_else(|| "acp".to_string());
     let telegram_agent = merge_option(args.telegram_agent, runtime_config.telegram_agent);
     let discord_agent = merge_option(args.discord_agent, runtime_config.discord_agent);
     let feishu_agent = merge_option(args.feishu_agent, runtime_config.feishu_agent);
     let qq_agent = merge_option(args.qq_agent, runtime_config.qq_agent);
     let slack_agent = merge_option(args.slack_agent, runtime_config.slack_agent);
     let dingtalk_agent = merge_option(args.dingtalk_agent, runtime_config.dingtalk_agent);
-    let codex_command = merge_option(args.codex_command, runtime_config.codex_command);
-    let codex_args = merge_vec(args.codex_args, runtime_config.codex_args);
-    let codex_cwd = merge_option(args.codex_cwd, runtime_config.codex_cwd);
-    let codex_env = merge_map(
-        parse_env_overrides(&args.codex_env, "--codex-env")?,
-        runtime_config.codex_env,
+    let line_agent = merge_option(args.line_agent, runtime_config.line_agent);
+    let wechatwork_agent = merge_option(args.wechatwork_agent, runtime_config.wechatwork_agent);
+    let acp_command = merge_option(args.acp_command, runtime_config.acp_command);
+    let acp_args = merge_vec(args.acp_args, runtime_config.acp_args);
+    let acp_cwd = merge_option(args.acp_cwd, runtime_config.acp_cwd);
+    let acp_env = merge_map(
+        parse_env_overrides(&args.acp_env, "--acp-env")?,
+        runtime_config.acp_env,
     );
 
     let telegram_token = merge_option(args.telegram_token, runtime_config.telegram_token);
@@ -252,6 +255,15 @@ async fn main() -> anyhow::Result<()> {
     );
     let dingtalk_token = merge_option(args.dingtalk_token, runtime_config.dingtalk_token);
     let dingtalk_secret = merge_option(args.dingtalk_secret, runtime_config.dingtalk_secret);
+    let line_channel_token =
+        merge_option(args.line_channel_token, runtime_config.line_channel_token);
+    let line_channel_secret =
+        merge_option(args.line_channel_secret, runtime_config.line_channel_secret);
+    let wechatwork_corp_id =
+        merge_option(args.wechatwork_corp_id, runtime_config.wechatwork_corp_id);
+    let wechatwork_app_agent_id =
+        merge_option(args.wechatwork_agent_id, runtime_config.wechatwork_agent_id);
+    let wechatwork_secret = merge_option(args.wechatwork_secret, runtime_config.wechatwork_secret);
     let qq_token = merge_option(args.qq_token, runtime_config.qq_token);
     let qq_bot_id = merge_option(args.qq_bot_id, runtime_config.qq_bot_id);
     let qq_bot_token = merge_option(args.qq_bot_token, runtime_config.qq_bot_token);
@@ -284,10 +296,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
     let agent_runtime_options = AgentRuntimeOptions {
-        codex_command,
-        codex_args,
-        codex_cwd: codex_cwd.map(PathBuf::from),
-        codex_env,
+        acp_command,
+        acp_args,
+        acp_cwd: acp_cwd.map(PathBuf::from),
+        acp_env,
     };
 
     register_agent_variant(
@@ -300,14 +312,12 @@ async fn main() -> anyhow::Result<()> {
         "Default agent '{}' registered",
         default_agent_type
     ));
-    if default_agent_type == "codex" {
-        let backend = build_codex_backend_config(&agent_runtime_options)?;
-        cli::print_info(&format!(
-            "Codex backend bootstrap: {} (cwd: {})",
-            backend.describe(),
-            backend.cwd.display()
-        ));
-    }
+    let backend = build_acp_backend_config(&agent_runtime_options)?;
+    cli::print_info(&format!(
+        "ACP backend bootstrap: {} (cwd: {})",
+        backend.describe(),
+        backend.cwd.display()
+    ));
 
     let telegram_agent_id = if let Some(agent_type) = telegram_agent.as_deref() {
         register_agent_variant(
@@ -368,6 +378,27 @@ async fn main() -> anyhow::Result<()> {
         )?;
         cli::print_info(&format!("DingTalk traffic -> {} agent", agent_type));
         "dingtalk-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let line_agent_id = if let Some(agent_type) = line_agent.as_deref() {
+        register_agent_variant(&agentim, "line-agent", agent_type, &agent_runtime_options)?;
+        cli::print_info(&format!("LINE traffic -> {} agent", agent_type));
+        "line-agent".to_string()
+    } else {
+        "default-agent".to_string()
+    };
+
+    let wechatwork_agent_runtime_id = if let Some(agent_type) = wechatwork_agent.as_deref() {
+        register_agent_variant(
+            &agentim,
+            "wechatwork-agent",
+            agent_type,
+            &agent_runtime_options,
+        )?;
+        cli::print_info(&format!("WeChat Work traffic -> {} agent", agent_type));
+        "wechatwork-agent".to_string()
     } else {
         "default-agent".to_string()
     };
@@ -535,6 +566,60 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    if let Some(token) = line_channel_token {
+        cli::print_info("Initializing LINE Bot...");
+        let line_bot = Arc::new(LineBotChannel::new(
+            LINE_CHANNEL_ID.to_string(),
+            token,
+            line_channel_secret.clone(),
+        ));
+        agentim.register_channel(LINE_CHANNEL_ID.to_string(), line_bot.clone())?;
+
+        if args.dry_run {
+            cli::print_info("Skipping LINE health check in dry-run mode");
+        } else {
+            match Channel::health_check(line_bot.as_ref()).await {
+                Ok(_) => cli::print_success("LINE Bot connected"),
+                Err(e) => cli::print_error(&format!("LINE Bot connection failed: {}", e)),
+            }
+        }
+    }
+
+    match (
+        wechatwork_corp_id,
+        wechatwork_app_agent_id,
+        wechatwork_secret,
+    ) {
+        (Some(corp_id), Some(agent_id), Some(secret)) => {
+            cli::print_info("Initializing WeChat Work Bot...");
+            let wechatwork_bot = Arc::new(WeChatWorkBotChannel::new(
+                WECHATWORK_CHANNEL_ID.to_string(),
+                corp_id,
+                agent_id,
+                secret,
+            ));
+            agentim.register_channel(WECHATWORK_CHANNEL_ID.to_string(), wechatwork_bot.clone())?;
+
+            if args.dry_run {
+                cli::print_info("Skipping WeChat Work health check in dry-run mode");
+            } else {
+                match Channel::health_check(wechatwork_bot.as_ref()).await {
+                    Ok(_) => cli::print_success("WeChat Work Bot connected"),
+                    Err(e) => {
+                        cli::print_error(&format!("WeChat Work Bot connection failed: {}", e))
+                    }
+                }
+            }
+        }
+        (None, None, None) => {}
+        _ => {
+            let message =
+                "WeChat Work requires --wechatwork-corp-id, --wechatwork-agent-id, and --wechatwork-secret";
+            cli::print_error(message);
+            return Err(anyhow::anyhow!(message));
+        }
+    }
+
     if let Some(path) = state_file.as_deref() {
         let (restored, loaded_from) = if state_backup_count > 0 {
             agentim.load_sessions_from_path_with_fallback(path, state_backup_count)?
@@ -593,6 +678,9 @@ async fn main() -> anyhow::Result<()> {
     if dingtalk_secret.is_some() {
         cli::print_info("DingTalk webhook signature enabled");
     }
+    if line_channel_secret.is_some() {
+        cli::print_info("LINE webhook signature enabled");
+    }
 
     if args.dry_run {
         cli::print_success("Dry run complete; startup configuration validated.");
@@ -635,6 +723,8 @@ async fn main() -> anyhow::Result<()> {
         qq_agent_id,
         slack_agent_id,
         dingtalk_agent_id,
+        line_agent_id,
+        wechatwork_agent_id: wechatwork_agent_runtime_id,
         routing_rules,
         max_session_messages,
         context_message_limit,
@@ -648,6 +738,7 @@ async fn main() -> anyhow::Result<()> {
         feishu_verification_token,
         slack_signing_secret,
         dingtalk_secret,
+        line_channel_secret,
         session_ttl_seconds,
     };
 

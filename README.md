@@ -1,6 +1,6 @@
 # AgentIM
 
-AgentIM is a Rust bridge that connects chat platforms to a local Codex backend.
+AgentIM is a Rust bridge that connects chat platforms to ACP-compatible agent backends.
 
 ## Install
 
@@ -16,18 +16,16 @@ This installs `agentim` into `~/.local/bin` by default. Override with:
 curl -fsSL https://raw.githubusercontent.com/markbang/agentim/main/install.sh | AGENTIM_INSTALL_DIR=/your/bin sh
 ```
 
-By default, AgentIM talks to `codex app-server` and receives Telegram messages through long polling, so the minimal local setup is close to:
+By default, AgentIM talks to a local `acp` process, so the minimal local setup is close to:
 
-- install and log into `codex`
+- install your ACP-compatible agent runtime
 - provide a bot token
 - start AgentIM
-
-For transport details, see [docs/codex-app-server-transport-review.md](docs/codex-app-server-transport-review.md).
 
 ## Features
 
 - Telegram, Discord, Feishu/Lark, Slack, DingTalk, LINE, QQ, and WeChat Work webhook support
-- Local Codex backend by default via `codex app-server`
+- ACP-only backend runtime via a local process
 - Session persistence, history trimming, and context limits
 - Routing rules by channel, user, and reply target
 - Shared-secret, signed-webhook, and platform-native verification support
@@ -50,7 +48,7 @@ For transport details, see [docs/codex-app-server-transport-review.md](docs/code
 ## Requirements
 
 - Rust 1.70+
-- Local `codex` CLI installed and authenticated
+- Local ACP-compatible agent backend installed
 
 ## Quick Start
 
@@ -66,9 +64,9 @@ Telegram does not require webhook setup in AgentIM.
 
 ```bash
 ./target/release/agentim \
-  --codex-command codex \
-  --codex-arg app-server \
-  --codex-cwd /path/to/worktree \
+  --acp-command your-agent \
+  --acp-arg serve \
+  --acp-cwd /path/to/worktree \
   --telegram-token YOUR_TELEGRAM_BOT_TOKEN
 ```
 
@@ -103,11 +101,11 @@ CLI flags override config-file values.
 Core flags:
 
 ```bash
---agent codex
---codex-command CMD
---codex-arg ARG
---codex-cwd PATH
---codex-env KEY=VALUE
+--agent acp
+--acp-command CMD
+--acp-arg ARG
+--acp-cwd PATH
+--acp-env KEY=VALUE
 --config-file PATH
 --addr HOST:PORT
 --dry-run
@@ -121,6 +119,8 @@ Platform flags:
 --feishu-app-id ID --feishu-app-secret SECRET
 --slack-token TOKEN
 --dingtalk-token TOKEN
+--line-channel-token TOKEN --line-channel-secret SECRET
+--wechatwork-corp-id ID --wechatwork-agent-id ID --wechatwork-secret SECRET
 --qq-bot-id ID --qq-bot-token TOKEN
 ```
 
@@ -158,7 +158,7 @@ AgentIM supports:
 
 - sessions are created per user + channel
 - `--max-session-messages` trims history after replies
-- `--context-message-limit` bounds context sent to Codex
+- `--context-message-limit` bounds context sent to the ACP agent
 - `--session-ttl-seconds` expires idle sessions
 - `--state-file` persists sessions across restarts
 - `--state-backup-count` keeps rotated backups

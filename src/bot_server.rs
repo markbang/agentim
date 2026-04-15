@@ -1,8 +1,10 @@
 use crate::bots::dingtalk::{dingtalk_webhook_handler, DingTalkWebhook};
 use crate::bots::discord::{discord_webhook_handler, DiscordMessage};
 use crate::bots::feishu::{feishu_webhook_handler, FeishuMessage};
+use crate::bots::line::{line_webhook_handler, LineWebhook};
 use crate::bots::qq::{qq_webhook_handler, QQMessage};
 use crate::bots::slack::{slack_webhook_handler, verify_signature_with_secret, SlackEvent};
+use crate::bots::wechatwork::{wechatwork_webhook_handler, WeChatWorkWebhook};
 use crate::error::AgentError;
 use crate::manager::AgentIM;
 use axum::{
@@ -85,6 +87,8 @@ pub struct BotServerConfig {
     pub qq_agent_id: String,
     pub slack_agent_id: String,
     pub dingtalk_agent_id: String,
+    pub line_agent_id: String,
+    pub wechatwork_agent_id: String,
     pub routing_rules: Vec<RoutingRule>,
     pub max_session_messages: Option<usize>,
     pub context_message_limit: usize,
@@ -98,6 +102,7 @@ pub struct BotServerConfig {
     pub feishu_verification_token: Option<String>,
     pub slack_signing_secret: Option<String>,
     pub dingtalk_secret: Option<String>,
+    pub line_channel_secret: Option<String>,
     pub session_ttl_seconds: Option<u64>,
 }
 
@@ -127,6 +132,8 @@ impl Default for BotServerConfig {
             qq_agent_id: "default-agent".to_string(),
             slack_agent_id: "default-agent".to_string(),
             dingtalk_agent_id: "default-agent".to_string(),
+            line_agent_id: "default-agent".to_string(),
+            wechatwork_agent_id: "default-agent".to_string(),
             routing_rules: Vec::new(),
             max_session_messages: None,
             context_message_limit: 10,
@@ -140,6 +147,7 @@ impl Default for BotServerConfig {
             feishu_verification_token: None,
             slack_signing_secret: None,
             dingtalk_secret: None,
+            line_channel_secret: None,
             session_ttl_seconds: None,
         }
     }
@@ -189,6 +197,8 @@ struct PlatformAgents {
     qq: String,
     slack: String,
     dingtalk: String,
+    line: String,
+    wechatwork: String,
 }
 
 #[derive(Serialize)]
@@ -427,6 +437,30 @@ fn authorize_feishu_verification_token(body: &Bytes, state: &AppState) -> Result
     Ok(())
 }
 
+fn authorize_line_signature(
+    headers: &HeaderMap,
+    body: &Bytes,
+    state: &AppState,
+) -> Result<(), String> {
+    let Some(secret) = state.config.line_channel_secret.as_deref() else {
+        return Ok(());
+    };
+
+    let signature = header_value(headers, "x-line-signature")
+        .ok_or_else(|| "missing x-line-signature".to_string())?;
+
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| "invalid LINE channel secret".to_string())?;
+    mac.update(body);
+    let computed = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+
+    if computed != signature {
+        return Err("invalid x-line-signature".to_string());
+    }
+
+    Ok(())
+}
+
 fn parse_json_body<T: DeserializeOwned>(body: &Bytes) -> Result<T, String> {
     serde_json::from_slice(body).map_err(|err| err.to_string())
 }
@@ -486,6 +520,8 @@ async fn reviewz(
                     qq: String::new(),
                     slack: String::new(),
                     dingtalk: String::new(),
+                    line: String::new(),
+                    wechatwork: String::new(),
                 },
                 routing_rules: Vec::new(),
                 max_session_messages: None,
@@ -517,6 +553,8 @@ async fn reviewz(
                 qq: state.config.qq_agent_id.clone(),
                 slack: state.config.slack_agent_id.clone(),
                 dingtalk: state.config.dingtalk_agent_id.clone(),
+                line: state.config.line_agent_id.clone(),
+                wechatwork: state.config.wechatwork_agent_id.clone(),
             },
             routing_rules: state.config.routing_rules.clone(),
             max_session_messages: state.config.max_session_messages,
@@ -826,6 +864,122 @@ async fn dingtalk_webhook(
     }
 }
 
+async fn line_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, String) {
+    if let Err(err) = authorize_shared(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_line_signature(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let webhook: LineWebhook = match parse_json_body(&body) {
+        Ok(webhook) => webhook,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
+
+    let agent_id = webhook
+        .events
+        .first()
+        .and_then(|event| event.source.as_ref())
+        .map(|source| {
+            let user_id = source.user_id.as_deref().unwrap_or("");
+            let reply_target = source
+                .group_id
+                .as_deref()
+                .or(source.room_id.as_deref())
+                .or(source.user_id.as_deref())
+                .unwrap_or("");
+            state
+                .config
+                .resolve_agent(
+                    "line",
+                    user_id,
+                    reply_target,
+                    state.config.line_agent_id.as_str(),
+                )
+                .to_string()
+        })
+        .unwrap_or_else(|| state.config.line_agent_id.clone());
+
+    match line_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        state.config.context_message_limit,
+        state.config.agent_timeout_ms,
+        webhook,
+    )
+    .await
+    {
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
+        Err(err) => {
+            tracing::error!("line webhook failed: {}", err);
+            (webhook_error_status(&err), err.to_string())
+        }
+    }
+}
+
+async fn wechatwork_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> (StatusCode, String) {
+    if let Err(err) = authorize_shared(&headers, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+    if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        return (StatusCode::UNAUTHORIZED, err);
+    }
+
+    let webhook: WeChatWorkWebhook = match parse_json_body(&body) {
+        Ok(webhook) => webhook,
+        Err(err) => return (StatusCode::BAD_REQUEST, err),
+    };
+
+    let agent_id = state
+        .config
+        .resolve_agent(
+            "wechatwork",
+            &webhook.from_user_name,
+            webhook
+                .chat_id
+                .as_deref()
+                .unwrap_or(&webhook.from_user_name),
+            state.config.wechatwork_agent_id.as_str(),
+        )
+        .to_string();
+
+    match wechatwork_webhook_handler(
+        state.agentim.clone(),
+        &agent_id,
+        state.config.max_session_messages,
+        state.config.context_message_limit,
+        state.config.agent_timeout_ms,
+        webhook,
+    )
+    .await
+    {
+        Ok(_) => match persist_if_configured(&state) {
+            Ok(_) => (StatusCode::OK, "ok".to_string()),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
+        },
+        Err(err) => {
+            tracing::error!("wechatwork webhook failed: {}", err);
+            (webhook_error_status(&err), err.to_string())
+        }
+    }
+}
+
 pub fn create_bot_router(agentim: Arc<AgentIM>) -> Router {
     create_bot_router_with_config(agentim, BotServerConfig::default())
 }
@@ -877,6 +1031,8 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/qq", post(qq_webhook))
         .route("/slack", post(slack_webhook))
         .route("/dingtalk", post(dingtalk_webhook))
+        .route("/line", post(line_webhook))
+        .route("/wechatwork", post(wechatwork_webhook))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1 MB
         .with_state(AppState {
             agentim,
