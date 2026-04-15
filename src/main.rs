@@ -9,6 +9,10 @@ use agentim::bots::{
 };
 use agentim::channel::Channel;
 use agentim::cli::{self, Args};
+use agentim::lease::FileLeaseStore;
+use agentim::listener::{run_listener_supervisor, ListenerRuntimeConfig};
+use agentim::listeners::discord_gateway::DiscordGatewayListener;
+use agentim::listeners::telegram_polling::TelegramPollingListener;
 use agentim::manager::{AgentIM, MessageHandlingOptions};
 use clap::Parser;
 use serde::Deserialize;
@@ -431,6 +435,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut telegram_bot: Option<Arc<TelegramBotChannel>> = None;
+    let mut discord_bot: Option<Arc<DiscordBotChannel>> = None;
     if let Some(token) = telegram_token {
         cli::print_info("Initializing Telegram Bot...");
         let tg_bot = Arc::new(TelegramBotChannel::new(
@@ -452,16 +457,17 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(token) = discord_token {
         cli::print_info("Initializing Discord Bot...");
-        let discord_bot = Arc::new(DiscordBotChannel::new(
+        let discord_bot_channel = Arc::new(DiscordBotChannel::new(
             DISCORD_CHANNEL_ID.to_string(),
             token,
         ));
-        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot.clone())?;
+        agentim.register_channel(DISCORD_CHANNEL_ID.to_string(), discord_bot_channel.clone())?;
+        discord_bot = Some(discord_bot_channel.clone());
 
         if args.dry_run {
             cli::print_info("Skipping Discord health check in dry-run mode");
         } else {
-            match Channel::health_check(discord_bot.as_ref()).await {
+            match Channel::health_check(discord_bot_channel.as_ref()).await {
                 Ok(_) => cli::print_success("Discord Bot connected"),
                 Err(e) => cli::print_error(&format!("Discord Bot connection failed: {}", e)),
             }
@@ -638,6 +644,9 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Initialize active sessions gauge for Prometheus metrics
+    agentim::metrics::set_active_sessions(agentim.session_count());
+
     if let Some(max_session_messages) = max_session_messages {
         cli::print_info(&format!(
             "Session history will be trimmed to {} message(s)",
@@ -696,19 +705,61 @@ async fn main() -> anyhow::Result<()> {
         let polling_agentim = Arc::new(agentim.clone());
         let polling_agent_id = telegram_agent_id.clone();
         let polling_state_file = state_file.clone();
+        let lease_store = polling_state_file
+            .as_deref()
+            .map(FileLeaseStore::from_state_file)
+            .map(|store| Arc::new(store) as Arc<dyn agentim::lease::LeaseStore>);
         cli::print_info("Telegram long polling enabled");
         tokio::spawn(async move {
-            if let Err(err) = agentim::bots::telegram::start_telegram_long_polling(
+            let listener = Arc::new(TelegramPollingListener::new(
                 polling_agentim,
                 tg_bot,
                 polling_agent_id,
                 polling_options,
                 polling_state_file,
                 state_backup_count,
-            )
-            .await
-            {
-                tracing::error!(error = %err, "Telegram long polling stopped");
+            ));
+            let runtime = ListenerRuntimeConfig {
+                lease_store,
+                lease_key: Some("telegram-polling".to_string()),
+                ..ListenerRuntimeConfig::default()
+            };
+            if let Err(err) = run_listener_supervisor(listener, runtime).await {
+                tracing::error!(error = %err, "Telegram listener supervisor stopped");
+            }
+        });
+    }
+
+    if let Some(discord_bot) = discord_bot {
+        let gateway_options = MessageHandlingOptions {
+            max_messages: max_session_messages,
+            context_message_limit,
+            agent_timeout_ms,
+        };
+        let gateway_agentim = Arc::new(agentim.clone());
+        let gateway_agent_id = discord_agent_id.clone();
+        let gateway_state_file = state_file.clone();
+        let lease_store = gateway_state_file
+            .as_deref()
+            .map(FileLeaseStore::from_state_file)
+            .map(|store| Arc::new(store) as Arc<dyn agentim::lease::LeaseStore>);
+        cli::print_info("Discord gateway listener enabled");
+        tokio::spawn(async move {
+            let listener = Arc::new(DiscordGatewayListener::new(
+                gateway_agentim,
+                discord_bot,
+                gateway_agent_id,
+                gateway_options,
+                gateway_state_file,
+                state_backup_count,
+            ));
+            let runtime = ListenerRuntimeConfig {
+                lease_store,
+                lease_key: Some("discord-gateway".to_string()),
+                ..ListenerRuntimeConfig::default()
+            };
+            if let Err(err) = run_listener_supervisor(listener, runtime).await {
+                tracing::error!(error = %err, "Discord listener supervisor stopped");
             }
         });
     }

@@ -6,8 +6,13 @@ pub mod channel;
 pub mod cli;
 pub mod config;
 pub mod error;
+pub mod lease;
+pub mod listener;
+pub mod listeners;
 pub mod manager;
+pub mod metrics;
 pub mod session;
+pub mod store;
 
 pub use acp::{AcpAgent, AcpBackendConfig};
 pub use agent::Agent;

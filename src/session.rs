@@ -28,8 +28,19 @@ impl std::fmt::Display for MessageRole {
     }
 }
 
+/// Current schema version for session state persistence.
+/// Bump this when the Session struct shape changes incompatibly.
+pub const SCHEMA_VERSION: u32 = 1;
+
+fn default_schema_version() -> u32 {
+    SCHEMA_VERSION
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// Schema version of this session snapshot. Defaults to `SCHEMA_VERSION` for new sessions.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub id: String,
     pub agent_id: String,
     pub channel_id: String,
@@ -44,6 +55,7 @@ impl Session {
     pub fn new(agent_id: String, channel_id: String, user_id: String) -> Self {
         let now = Utc::now();
         Self {
+            schema_version: SCHEMA_VERSION,
             id: Uuid::new_v4().to_string(),
             agent_id,
             channel_id,

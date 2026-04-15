@@ -25,11 +25,13 @@ By default, AgentIM talks to a local `acp` process, so the minimal local setup i
 ## Features
 
 - Telegram, Discord, Feishu/Lark, Slack, DingTalk, LINE, QQ, and WeChat Work webhook support
+- Telegram polling listener and Discord gateway listener under a shared listener runtime
 - ACP-only backend runtime via a local process
 - Session persistence, history trimming, and context limits
 - Routing rules by channel, user, and reply target
 - Shared-secret, signed-webhook, and platform-native verification support
-- Health, readiness, and review endpoints
+- Health, readiness, review, and metrics endpoints
+- Optional Redis-backed `SessionStore` / `LeaseStore` via `--features redis-store`
 - Docker support
 
 ## Supported Platforms
@@ -181,13 +183,21 @@ See [docs/deployment.md](docs/deployment.md) for detailed deployment guide.
 
 ### Deployment Constraints
 
-**Important:** AgentIM is currently designed for **single-instance deployment**.
+AgentIM supports two deployment shapes:
 
-- Session state is file-based (local disk)
-- Telegram polling is exclusive (cannot run multiple instances)
-- No distributed state coordination
+1. **Single instance**
+   - local file state
+   - file lease store for listener ownership
+   - simplest recommended default
 
-For production, run single instance with a process supervisor (systemd, Docker restart policy).
+2. **HA / multi-instance foundation**
+   - shared `SessionStore`
+   - shared `LeaseStore`
+   - listener leader-only execution
+   - Redis-backed implementations are available behind `--features redis-store`
+
+For pure local deploys, keep using a single instance with a process supervisor.
+For HA, use shared remote state + lease backends and ensure only one listener owner per platform token.
 
 See [docs/deployment.md](docs/deployment.md) for details.
 
@@ -218,7 +228,17 @@ cargo fmt --check
 | [docs/operations.md](docs/operations.md) | Startup/shutdown, session management, troubleshooting |
 | [docs/recovery.md](docs/recovery.md) | Failure recovery procedures, disaster recovery |
 | [docs/upgrade-guide.md](docs/upgrade-guide.md) | Version migration, compatibility, rollback |
+| [docs/soak-test.md](docs/soak-test.md) | Soak test harness and production soak guidance |
+| [docs/listener-runtime.md](docs/listener-runtime.md) | Inbound listener abstraction, supervisor, checkpoint model |
 | [docs/acp-transport-review.md](docs/acp-transport-review.md) | ACP backend architecture |
+
+### Optional Redis build
+
+Enable Redis-backed state/lease implementations with:
+
+```bash
+cargo build --features redis-store
+```
 
 ## License
 

@@ -1,7 +1,9 @@
 use crate::agent::Agent;
 use crate::channel::Channel;
 use crate::error::{AgentError, Result};
-use crate::session::Session;
+use crate::metrics;
+use crate::session::{Session, SCHEMA_VERSION};
+use crate::store::SessionStore;
 use dashmap::DashMap;
 use std::sync::Arc;
 
@@ -9,6 +11,7 @@ pub struct AgentIM {
     agents: Arc<DashMap<String, Arc<dyn Agent>>>,
     channels: Arc<DashMap<String, Arc<dyn Channel>>>,
     sessions: Arc<DashMap<String, Session>>,
+    session_store: Option<Arc<dyn SessionStore>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +37,16 @@ impl AgentIM {
             agents: Arc::new(DashMap::new()),
             channels: Arc::new(DashMap::new()),
             sessions: Arc::new(DashMap::new()),
+            session_store: None,
+        }
+    }
+
+    pub fn with_session_store(session_store: Arc<dyn SessionStore>) -> Self {
+        Self {
+            agents: Arc::new(DashMap::new()),
+            channels: Arc::new(DashMap::new()),
+            sessions: Arc::new(DashMap::new()),
+            session_store: Some(session_store),
         }
     }
 
@@ -96,6 +109,11 @@ impl AgentIM {
             .collect()
     }
 
+    /// Returns the number of sessions currently in memory.
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
     pub fn list_agents(&self) -> Vec<String> {
         self.agents
             .iter()
@@ -108,6 +126,30 @@ impl AgentIM {
             .iter()
             .map(|entry| entry.key().clone())
             .collect()
+    }
+
+    pub async fn persist_sessions_via_store(&self) -> Result<()> {
+        let Some(store) = &self.session_store else {
+            return Ok(());
+        };
+        store.save_sessions(self.list_sessions()).await
+    }
+
+    pub async fn restore_sessions_via_store(&self) -> Result<usize> {
+        let Some(store) = &self.session_store else {
+            return Ok(0);
+        };
+        let sessions = store.load_sessions().await?;
+        let count = sessions.len();
+        for session in &sessions {
+            self.get_agent(&session.agent_id)?;
+            self.get_channel(&session.channel_id)?;
+        }
+        for session in sessions {
+            self.sessions.insert(session.id.clone(), session);
+        }
+        metrics::set_active_sessions(self.sessions.len());
+        Ok(count)
     }
 
     pub fn save_sessions_to_path(&self, path: &str) -> Result<()> {
@@ -171,7 +213,25 @@ impl AgentIM {
             self.get_channel(&session.channel_id)?;
         }
 
-        for session in sessions {
+        let (compatible, migrated): (Vec<_>, Vec<_>) = sessions
+            .into_iter()
+            .partition(|s| s.schema_version == SCHEMA_VERSION || s.schema_version == 0);
+
+        let migrated_count = migrated.len();
+        if migrated_count > 0 {
+            tracing::warn!(
+                loaded = count,
+                migrated = migrated_count,
+                current_schema = SCHEMA_VERSION,
+                "Loaded sessions with older schema version; they will be upgraded in-memory"
+            );
+        }
+
+        for session in compatible {
+            self.sessions.insert(session.id.clone(), session);
+        }
+        for mut session in migrated {
+            session.schema_version = SCHEMA_VERSION;
             self.sessions.insert(session.id.clone(), session);
         }
 
@@ -288,7 +348,12 @@ impl AgentIM {
             .cloned()
             .unwrap_or_else(|| session.user_id.clone());
 
+        let start = std::time::Instant::now();
         channel.send_message(&reply_target, &message).await?;
+        metrics::observe_channel_send_latency(
+            &session.channel_id,
+            start.elapsed().as_secs_f64() * 1000.0,
+        );
         Ok(())
     }
 
@@ -497,6 +562,7 @@ impl Clone for AgentIM {
             agents: self.agents.clone(),
             channels: self.channels.clone(),
             sessions: self.sessions.clone(),
+            session_store: self.session_store.clone(),
         }
     }
 }

@@ -35,9 +35,9 @@ struct TelegramApiEnvelope<T> {
 }
 
 pub struct TelegramBotChannel {
-    id: String,
+    pub(crate) id: String,
     api_url: String,
-    pending_messages: Arc<DashMap<String, Vec<String>>>,
+    pub(crate) pending_messages: Arc<DashMap<String, Vec<String>>>,
 }
 
 impl TelegramBotChannel {
@@ -242,7 +242,8 @@ pub async fn run_telegram_poll_once(
 
     for update in updates {
         next_offset = Some(update.update_id + 1);
-        if let Err(err) = handle_telegram_update(
+        let start = std::time::Instant::now();
+        let result = handle_telegram_update(
             agentim.clone(),
             agent_id,
             options.max_messages,
@@ -250,10 +251,21 @@ pub async fn run_telegram_poll_once(
             options.agent_timeout_ms,
             update,
         )
-        .await
-        {
-            tracing::error!(error = %err, "Telegram polling update failed");
-            continue;
+        .await;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        match result {
+            Ok(_) => {
+                crate::metrics::inc_webhook_request("telegram");
+                crate::metrics::observe_agent_latency(agent_id, elapsed_ms);
+            }
+            Err(ref err) => {
+                crate::metrics::inc_webhook_request("telegram");
+                crate::metrics::inc_webhook_failure("telegram", "agent");
+                crate::metrics::observe_agent_latency(agent_id, elapsed_ms);
+                tracing::error!(error = %err, "Telegram polling update failed");
+                continue;
+            }
         }
 
         if let Some(path) = state_file {

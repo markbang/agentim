@@ -8,6 +8,10 @@ license = "MIT"
 keywords = ["im", "bridge", "chatbot", "agent", "webhook"]
 categories = ["web-programming"]
 
+[features]
+default = []
+redis-store = ["dep:redis"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,3 +39,6 @@ base64 = "0.22"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
 toml = "0.8"
+once_cell = "1"
+prometheus = "0.13"
+redis = { version = "0.25", features = ["tokio-comp"], optional = true }

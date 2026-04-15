@@ -7,6 +7,7 @@ use crate::bots::slack::{slack_webhook_handler, verify_signature_with_secret, Sl
 use crate::bots::wechatwork::{wechatwork_webhook_handler, WeChatWorkWebhook};
 use crate::error::AgentError;
 use crate::manager::AgentIM;
+use crate::metrics;
 use axum::{
     body::Bytes,
     extract::{Query, State},
@@ -581,19 +582,30 @@ async fn discord_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    metrics::inc_webhook_request("discord");
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "discord", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("discord", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("discord", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_discord_interaction_signature(&headers, &body, &state) {
+        metrics::inc_webhook_failure("discord", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let message: DiscordMessage = match parse_json_body(&body) {
         Ok(message) => message,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("discord", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = state
@@ -606,6 +618,7 @@ async fn discord_webhook(
         )
         .to_string();
 
+    let start = std::time::Instant::now();
     match discord_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -616,12 +629,20 @@ async fn discord_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("discord", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("discord webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("discord", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "discord webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -632,16 +653,24 @@ async fn feishu_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "feishu", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("feishu", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("feishu", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_feishu_verification_token(&body, &state) {
+        metrics::inc_webhook_failure("feishu", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
+    // Handle URL verification challenge (not a real message)
     if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) {
         if value.get("type").and_then(|value| value.as_str()) == Some("url_verification") {
             if let Some(challenge) = value.get("challenge").and_then(|value| value.as_str()) {
@@ -656,9 +685,14 @@ async fn feishu_webhook(
         }
     }
 
+    metrics::inc_webhook_request("feishu");
+
     let message: FeishuMessage = match parse_json_body(&body) {
         Ok(message) => message,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("feishu", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = state
@@ -671,6 +705,7 @@ async fn feishu_webhook(
         )
         .to_string();
 
+    let start = std::time::Instant::now();
     match feishu_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -681,12 +716,20 @@ async fn feishu_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("feishu", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("feishu webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("feishu", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "feishu webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -697,16 +740,26 @@ async fn qq_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    metrics::inc_webhook_request("qq");
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "qq", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("qq", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("qq", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let message: QQMessage = match parse_json_body(&body) {
         Ok(message) => message,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("qq", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = state
@@ -719,6 +772,7 @@ async fn qq_webhook(
         )
         .to_string();
 
+    let start = std::time::Instant::now();
     match qq_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -729,12 +783,20 @@ async fn qq_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("qq", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("qq webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("qq", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "qq webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -745,27 +807,39 @@ async fn slack_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "slack", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("slack", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("slack", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_slack_signature(&headers, &body, &state) {
+        metrics::inc_webhook_failure("slack", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let event: SlackEvent = match parse_json_body(&body) {
         Ok(event) => event,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("slack", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
-    // Handle URL verification challenge
+    // Handle URL verification challenge (not a real message)
     if event.event_type == "url_verification" {
         if let Some(challenge) = event.challenge {
             return (StatusCode::OK, challenge);
         }
     }
+
+    metrics::inc_webhook_request("slack");
 
     let agent_id = event
         .event
@@ -785,6 +859,7 @@ async fn slack_webhook(
         })
         .unwrap_or_else(|| state.config.slack_agent_id.clone());
 
+    let start = std::time::Instant::now();
     match slack_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -795,18 +870,26 @@ async fn slack_webhook(
     )
     .await
     {
-        Ok(challenge_response) => match persist_if_configured(&state) {
-            Ok(_) => {
-                if let Some(challenge) = challenge_response {
-                    (StatusCode::OK, challenge)
-                } else {
-                    (StatusCode::OK, "ok".to_string())
+        Ok(challenge_response) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => {
+                    if let Some(challenge) = challenge_response {
+                        (StatusCode::OK, challenge)
+                    } else {
+                        (StatusCode::OK, "ok".to_string())
+                    }
+                }
+                Err(err) => {
+                    metrics::inc_webhook_failure("slack", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
                 }
             }
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        }
         Err(err) => {
-            tracing::error!("slack webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("slack", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "slack webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -818,19 +901,30 @@ async fn dingtalk_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    metrics::inc_webhook_request("dingtalk");
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "dingtalk", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("dingtalk", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("dingtalk", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_dingtalk_signature(&query, &headers, &state) {
+        metrics::inc_webhook_failure("dingtalk", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let webhook: DingTalkWebhook = match parse_json_body(&body) {
         Ok(webhook) => webhook,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("dingtalk", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = state
@@ -843,6 +937,7 @@ async fn dingtalk_webhook(
         )
         .to_string();
 
+    let start = std::time::Instant::now();
     match dingtalk_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -853,12 +948,20 @@ async fn dingtalk_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("dingtalk", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("dingtalk webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("dingtalk", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "dingtalk webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -869,19 +972,30 @@ async fn line_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    metrics::inc_webhook_request("line");
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "line", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("line", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("line", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_line_signature(&headers, &body, &state) {
+        metrics::inc_webhook_failure("line", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let webhook: LineWebhook = match parse_json_body(&body) {
         Ok(webhook) => webhook,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("line", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = webhook
@@ -908,6 +1022,7 @@ async fn line_webhook(
         })
         .unwrap_or_else(|| state.config.line_agent_id.clone());
 
+    let start = std::time::Instant::now();
     match line_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -918,12 +1033,20 @@ async fn line_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("line", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("line webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("line", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "line webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -934,16 +1057,26 @@ async fn wechatwork_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> (StatusCode, String) {
+    metrics::inc_webhook_request("wechatwork");
+    let request_id = uuid::Uuid::new_v4();
+    let span = tracing::info_span!("webhook", channel = "wechatwork", request_id = %request_id);
+    let _enter = span.enter();
+
     if let Err(err) = authorize_shared(&headers, &state) {
+        metrics::inc_webhook_failure("wechatwork", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
     if let Err(err) = authorize_signed_webhook(&headers, &body, &state) {
+        metrics::inc_webhook_failure("wechatwork", "auth");
         return (StatusCode::UNAUTHORIZED, err);
     }
 
     let webhook: WeChatWorkWebhook = match parse_json_body(&body) {
         Ok(webhook) => webhook,
-        Err(err) => return (StatusCode::BAD_REQUEST, err),
+        Err(err) => {
+            metrics::inc_webhook_failure("wechatwork", "parse");
+            return (StatusCode::BAD_REQUEST, err);
+        }
     };
 
     let agent_id = state
@@ -959,6 +1092,7 @@ async fn wechatwork_webhook(
         )
         .to_string();
 
+    let start = std::time::Instant::now();
     match wechatwork_webhook_handler(
         state.agentim.clone(),
         &agent_id,
@@ -969,12 +1103,20 @@ async fn wechatwork_webhook(
     )
     .await
     {
-        Ok(_) => match persist_if_configured(&state) {
-            Ok(_) => (StatusCode::OK, "ok".to_string()),
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err),
-        },
+        Ok(_) => {
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            match persist_if_configured(&state) {
+                Ok(_) => (StatusCode::OK, "ok".to_string()),
+                Err(err) => {
+                    metrics::inc_webhook_failure("wechatwork", "persistence");
+                    (StatusCode::INTERNAL_SERVER_ERROR, err)
+                }
+            }
+        }
         Err(err) => {
-            tracing::error!("wechatwork webhook failed: {}", err);
+            metrics::observe_agent_latency(&agent_id, start.elapsed().as_secs_f64() * 1000.0);
+            metrics::inc_webhook_failure("wechatwork", "agent");
+            tracing::error!(error = %err, request_id = %request_id, "wechatwork webhook failed");
             (webhook_error_status(&err), err.to_string())
         }
     }
@@ -1026,6 +1168,7 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/reviewz", get(reviewz))
+        .route("/metrics", get(metrics_endpoint))
         .route("/discord", post(discord_webhook))
         .route("/feishu", post(feishu_webhook))
         .route("/qq", post(qq_webhook))
@@ -1041,6 +1184,21 @@ pub fn create_bot_router_with_config(agentim: Arc<AgentIM>, config: BotServerCon
         })
 }
 
+async fn metrics_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> (StatusCode, String) {
+    if authorize_shared(&headers, &state).is_err() {
+        metrics::inc_auth_reject("shared_secret");
+        return (StatusCode::UNAUTHORIZED, "unauthorized".to_string());
+    }
+
+    match metrics::gather_text() {
+        Ok(body) => (StatusCode::OK, body),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+    }
+}
+
 fn cleanup_stale_sessions_with_persistence(
     agentim: &AgentIM,
     max_idle_seconds: u64,
@@ -1049,6 +1207,8 @@ fn cleanup_stale_sessions_with_persistence(
 ) -> Result<usize, String> {
     let removed = agentim.cleanup_stale_sessions(max_idle_seconds);
     if removed > 0 {
+        metrics::inc_session_cleanup(removed);
+        metrics::set_active_sessions(agentim.list_sessions().len());
         if let Some(path) = state_file {
             agentim
                 .save_sessions_to_path_with_rotation(path, state_backup_count)
@@ -1104,17 +1264,23 @@ pub async fn start_bot_server(
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::error!(error = %err, "failed to install Ctrl+C handler");
+            std::future::pending::<()>().await;
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(err) => {
+                tracing::error!(error = %err, "failed to install SIGTERM handler");
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]
@@ -1130,6 +1296,8 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
     use crate::session::Session;
+    use axum::body::to_bytes;
+    use tower::ServiceExt;
 
     fn temp_state_file() -> String {
         let nanos = std::time::SystemTime::now()
@@ -1140,6 +1308,46 @@ mod tests {
             .join(format!("agentim-bot-server-{}.json", nanos))
             .display()
             .to_string()
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_requires_secret_and_exposes_prometheus_text() {
+        let agentim = Arc::new(AgentIM::new());
+        let app = create_bot_router_with_config(
+            agentim,
+            BotServerConfig {
+                webhook_secret: Some("inspect".to_string()),
+                ..BotServerConfig::default()
+            },
+        );
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                axum::http::Request::get("/metrics")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), axum::http::StatusCode::UNAUTHORIZED);
+
+        let authorized = app
+            .oneshot(
+                axum::http::Request::get("/metrics")
+                    .header("x-agentim-secret", "inspect")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), axum::http::StatusCode::OK);
+        let body = to_bytes(authorized.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("agentim_auth_reject_total")
+                || text.contains("agentim_webhook_requests_total")
+        );
     }
 
     #[test]

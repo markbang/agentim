@@ -76,6 +76,14 @@ Use structured logs and avoid printing:
 - signing secrets
 - full raw payloads in production
 
+Current runtime fields commonly logged:
+
+- listener id
+- session id
+- agent id
+- backoff duration
+- error category
+
 ## Secret Management
 
 Recommended production practice:
@@ -91,3 +99,4 @@ Before upgrading:
 - back up the session state file
 - run dry-run validation with the new binary
 - confirm only one Telegram polling instance is active
+- preserve listener checkpoint files if using long-lived listeners

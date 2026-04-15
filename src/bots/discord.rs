@@ -79,15 +79,19 @@ fn normalize_gateway_url(raw_url: &str) -> Result<String> {
 }
 
 pub struct DiscordBotChannel {
-    id: String,
-    token: String,
-    api_url: String,
-    pending_messages: Arc<DashMap<String, Vec<String>>>,
+    pub(crate) id: String,
+    pub(crate) token: String,
+    pub(crate) api_url: String,
+    pub(crate) pending_messages: Arc<DashMap<String, Vec<String>>>,
 }
 
 impl DiscordBotChannel {
     pub fn new(id: String, token: String) -> Self {
         let api_url = "https://discord.com/api/v10".to_string();
+        Self::with_api_url(id, token, api_url)
+    }
+
+    pub fn with_api_url(id: String, token: String, api_url: String) -> Self {
         Self {
             id,
             token,
@@ -236,6 +240,7 @@ async fn send_gateway_json<
         .map_err(|e| AgentError::ChannelError(format!("Discord gateway write failed: {}", e)))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_discord_gateway_once(
     agentim: Arc<AgentIM>,
     channel: Arc<DiscordBotChannel>,
@@ -244,7 +249,8 @@ pub async fn run_discord_gateway_once(
     gateway_url: &str,
     state_file: Option<&str>,
     state_backup_count: usize,
-) -> Result<()> {
+    resume_sequence: Option<u64>,
+) -> Result<Option<u64>> {
     let (socket, _) = connect_async(gateway_url)
         .await
         .map_err(|e| AgentError::ChannelError(format!("Discord gateway connect failed: {}", e)))?;
@@ -252,7 +258,7 @@ pub async fn run_discord_gateway_once(
 
     let hello = loop {
         let Some(frame) = read.next().await else {
-            return Ok(());
+            return Ok(resume_sequence);
         };
         let frame = frame
             .map_err(|e| AgentError::ChannelError(format!("Discord gateway read failed: {}", e)))?;
@@ -288,7 +294,7 @@ pub async fn run_discord_gateway_once(
                     )?;
                 }
             }
-            WebSocketMessage::Close(_) => return Ok(()),
+            WebSocketMessage::Close(_) => return Ok(resume_sequence),
             WebSocketMessage::Ping(payload) => {
                 write
                     .send(WebSocketMessage::Pong(payload))
@@ -322,7 +328,7 @@ pub async fn run_discord_gateway_once(
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     heartbeat.tick().await;
 
-    let mut last_sequence = None;
+    let mut last_sequence = resume_sequence;
 
     loop {
         tokio::select! {
@@ -337,7 +343,7 @@ pub async fn run_discord_gateway_once(
             }
             frame = read.next() => {
                 let Some(frame) = frame else {
-                    return Ok(());
+                    return Ok(last_sequence);
                 };
                 let frame = frame.map_err(|e| {
                     AgentError::ChannelError(format!("Discord gateway read failed: {}", e))
@@ -404,7 +410,7 @@ pub async fn run_discord_gateway_once(
                             .await
                             .map_err(|e| AgentError::ChannelError(format!("Discord gateway write failed: {}", e)))?;
                     }
-                    WebSocketMessage::Close(_) => return Ok(()),
+                    WebSocketMessage::Close(_) => return Ok(last_sequence),
                     _ => {}
                 }
             }
@@ -420,6 +426,7 @@ pub async fn start_discord_gateway(
     state_file: Option<String>,
     state_backup_count: usize,
 ) -> Result<()> {
+    let mut last_sequence = None;
     loop {
         let gateway_url = channel.get_gateway_url().await?;
         match run_discord_gateway_once(
@@ -430,14 +437,16 @@ pub async fn start_discord_gateway(
             &gateway_url,
             state_file.as_deref(),
             state_backup_count,
+            last_sequence,
         )
         .await
         {
-            Ok(()) => {
-                tracing::warn!("Discord gateway disconnected; reconnecting");
+            Ok(sequence) => {
+                last_sequence = sequence;
+                tracing::warn!(last_sequence, "Discord gateway disconnected; reconnecting");
             }
             Err(err) => {
-                tracing::error!(error = %err, "Discord gateway session failed; reconnecting");
+                tracing::error!(error = %err, last_sequence, "Discord gateway session failed; reconnecting");
             }
         }
 
@@ -630,6 +639,7 @@ mod tests {
             &gateway_url,
             None,
             0,
+            None,
         )
         .await
         .unwrap();

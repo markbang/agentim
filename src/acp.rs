@@ -147,7 +147,9 @@ impl AcpSessionClient {
     ) -> std::result::Result<String, AcpClientError> {
         let mut state = self.state.lock().await;
         self.ensure_connected(&mut state).await?;
-        let state = state.as_mut().expect("acp state initialized");
+        let state = state.as_mut().ok_or_else(|| {
+            AcpClientError::Protocol("ACP client state not initialized".to_string())
+        })?;
 
         let remote_session = state
             .ensure_remote_session(session, &self.session_cwd, &self.backend_description)
@@ -788,12 +790,68 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct FailingThenWorkingAcpTransportFactory {
+        state: Arc<StdMutex<MockAcpState>>,
+        attempts: Arc<StdMutex<usize>>,
+    }
+
+    #[async_trait]
+    impl AcpTransportFactory for FailingThenWorkingAcpTransportFactory {
+        async fn connect(&self) -> std::result::Result<AcpTransport, AcpClientError> {
+            let mut attempts = self.attempts.lock().unwrap();
+            *attempts += 1;
+            let attempt = *attempts;
+            drop(attempts);
+
+            let (client_stream, server_stream) = tokio::io::duplex(16 * 1024);
+            let (client_reader, client_writer) = split(client_stream);
+            let (server_reader, server_writer) = split(server_stream);
+            let state = self.state.clone();
+
+            tokio::spawn(async move {
+                if attempt == 1 {
+                    run_disconnect_after_initialize_agent(server_reader, server_writer).await;
+                } else {
+                    run_mock_acp_agent(server_reader, server_writer, state).await;
+                }
+            });
+
+            Ok(AcpTransport::new(
+                Box::pin(client_reader),
+                Box::pin(client_writer),
+                None,
+            ))
+        }
+
+        fn describe(&self) -> String {
+            "failing-then-working-acp".to_string()
+        }
+    }
+
+    #[derive(Clone)]
+    struct UnavailableAcpTransportFactory;
+
+    #[async_trait]
+    impl AcpTransportFactory for UnavailableAcpTransportFactory {
+        async fn connect(&self) -> std::result::Result<AcpTransport, AcpClientError> {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "acp unavailable").into())
+        }
+
+        fn describe(&self) -> String {
+            "unavailable-acp".to_string()
+        }
+    }
+
     #[tokio::test]
-    async fn acp_agent_creates_and_reuses_remote_sessions() {
+    async fn acp_agent_reconnects_once_after_transport_disconnect() {
         let shared = Arc::new(StdMutex::new(MockAcpState::default()));
-        let factory: Arc<dyn AcpTransportFactory> = Arc::new(InMemoryAcpTransportFactory {
-            state: shared.clone(),
-        });
+        let attempts = Arc::new(StdMutex::new(0usize));
+        let factory: Arc<dyn AcpTransportFactory> =
+            Arc::new(FailingThenWorkingAcpTransportFactory {
+                state: shared.clone(),
+                attempts: attempts.clone(),
+            });
         let mut session = Session::new(
             "acp-agent".to_string(),
             "telegram-bot".to_string(),
@@ -805,37 +863,35 @@ mod tests {
             std::env::current_dir().unwrap(),
         );
 
-        session.add_message(MessageRole::User, "hello".to_string());
-        let first_context = session.get_context(10);
-        let first = agent
-            .send_message_with_session(&mut session, first_context)
+        session.add_message(MessageRole::User, "hello after reconnect".to_string());
+        let context = session.get_context(10);
+        let reply = agent
+            .send_message_with_session(&mut session, context)
             .await
             .unwrap();
-        assert_eq!(first, "acp:acp-session-1:hello");
-        assert_eq!(
-            session.metadata.get(ACP_SESSION_ID_METADATA_KEY),
-            Some(&"acp-session-1".to_string())
-        );
 
-        session.add_message(MessageRole::Assistant, first);
-        session.add_message(MessageRole::User, "second".to_string());
-        let second_context = session.get_context(10);
-        let second = agent
-            .send_message_with_session(&mut session, second_context)
-            .await
-            .unwrap();
-        assert_eq!(second, "acp:acp-session-1:second");
-
+        assert_eq!(reply, "acp:acp-session-1:hello after reconnect");
+        assert_eq!(*attempts.lock().unwrap(), 2);
         let state = shared.lock().unwrap();
         assert_eq!(state.new_session_calls, 1);
-        assert_eq!(state.load_session_calls, 0);
-        assert_eq!(
-            state.prompt_calls,
-            vec![
-                ("acp-session-1".to_string(), "hello".to_string()),
-                ("acp-session-1".to_string(), "second".to_string()),
-            ]
+    }
+
+    #[tokio::test]
+    async fn acp_agent_reports_backend_unavailable() {
+        let factory: Arc<dyn AcpTransportFactory> = Arc::new(UnavailableAcpTransportFactory);
+        let agent = AcpAgent::from_factory(
+            "acp-agent".to_string(),
+            factory,
+            std::env::current_dir().unwrap(),
         );
+
+        let err = agent.health_check().await.unwrap_err();
+        match err {
+            AgentError::IoError(io) => {
+                assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+            }
+            other => panic!("expected IoError, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1109,6 +1165,61 @@ mod tests {
                     .await
                     .unwrap();
                 }
+            }
+        }
+    }
+
+    async fn run_disconnect_after_initialize_agent<R, W>(reader: R, mut writer: W)
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        let mut reader = BufReader::new(reader);
+        let mut saw_initialize = false;
+
+        loop {
+            let mut line = String::new();
+            let Ok(bytes_read) = reader.read_line(&mut line).await else {
+                break;
+            };
+            if bytes_read == 0 {
+                break;
+            }
+
+            let Ok(envelope) = serde_json::from_str::<JsonRpcEnvelope>(&line) else {
+                continue;
+            };
+            let Some(id) = envelope.id else {
+                continue;
+            };
+            let Some(method) = envelope.method.as_deref() else {
+                continue;
+            };
+
+            if method == ACP_INITIALIZE_METHOD {
+                let mut response = acp::InitializeResponse::new(acp::ProtocolVersion::V1);
+                response.agent_capabilities = acp::AgentCapabilities::new().load_session(true);
+                response.agent_info =
+                    Some(acp::Implementation::new("mock-acp", "0.1.0").title("Mock ACP"));
+                if write_json_line(
+                    &mut writer,
+                    &serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": response,
+                    }),
+                )
+                .await
+                .is_err()
+                {
+                    break;
+                }
+                saw_initialize = true;
+                continue;
+            }
+
+            if saw_initialize {
+                break;
             }
         }
     }
