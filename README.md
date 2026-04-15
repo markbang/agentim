@@ -146,6 +146,30 @@ AgentIM supports:
 - signed webhooks via timestamp + nonce + HMAC
 - native platform verification for Discord, Feishu, Slack, and DingTalk
 
+### Secrets Management
+
+**Best practices for production:**
+
+1. **Never commit secrets to git** - Add config files with tokens to `.gitignore`
+2. **Use environment variables** - Pass tokens via `-e` (Docker) or shell exports
+3. **Use secret managers** - Kubernetes secrets, Docker secrets, HashiCorp Vault
+4. **Rotate regularly** - Update platform tokens on a schedule
+
+```bash
+# Environment variables (recommended)
+export TELEGRAM_TOKEN="your-token"
+export DISCORD_TOKEN="your-token"
+./start.sh
+
+# Docker with secrets
+docker run -e TELEGRAM_TOKEN=$TOKEN agentim
+
+# Kubernetes secrets
+kubectl create secret generic agentim-secrets --from-literal=telegram-token=$TOKEN
+```
+
+See [docs/deployment.md](docs/deployment.md) for detailed deployment guide.
+
 ## Operations
 
 | Endpoint | Purpose |
@@ -153,6 +177,19 @@ AgentIM supports:
 | `GET /healthz` | Liveness |
 | `GET /readyz` | Readiness |
 | `GET /reviewz` | Runtime config + session stats |
+| `GET /metrics` | Prometheus-compatible runtime metrics |
+
+### Deployment Constraints
+
+**Important:** AgentIM is currently designed for **single-instance deployment**.
+
+- Session state is file-based (local disk)
+- Telegram polling is exclusive (cannot run multiple instances)
+- No distributed state coordination
+
+For production, run single instance with a process supervisor (systemd, Docker restart policy).
+
+See [docs/deployment.md](docs/deployment.md) for details.
 
 ## Session Behavior
 
@@ -172,6 +209,16 @@ cargo check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [docs/deployment.md](docs/deployment.md) | Deployment modes, HA constraints, container setup |
+| [docs/operations.md](docs/operations.md) | Startup/shutdown, session management, troubleshooting |
+| [docs/recovery.md](docs/recovery.md) | Failure recovery procedures, disaster recovery |
+| [docs/upgrade-guide.md](docs/upgrade-guide.md) | Version migration, compatibility, rollback |
+| [docs/acp-transport-review.md](docs/acp-transport-review.md) | ACP backend architecture |
 
 ## License
 
