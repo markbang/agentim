@@ -77,6 +77,7 @@ struct RuntimeConfig {
     webhook_max_skew_seconds: Option<i64>,
     session_ttl_seconds: Option<u64>,
     addr: Option<String>,
+    metrics_secret: Option<String>,
 }
 
 fn load_runtime_config(path: Option<&str>) -> anyhow::Result<RuntimeConfig> {
@@ -298,6 +299,7 @@ async fn main() -> anyhow::Result<()> {
         .or(runtime_config.session_ttl_seconds);
     let addr = merge_option(args.addr, runtime_config.addr)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let metrics_secret = merge_option(args.metrics_secret, runtime_config.metrics_secret);
 
     let agent_runtime_options = AgentRuntimeOptions {
         acp_command,
@@ -791,6 +793,7 @@ async fn main() -> anyhow::Result<()> {
         dingtalk_secret,
         line_channel_secret,
         session_ttl_seconds,
+        metrics_secret,
     };
 
     bot_server::start_bot_server(Arc::new(agentim), server_config, &addr).await?;

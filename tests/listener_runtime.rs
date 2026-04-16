@@ -1,13 +1,11 @@
 use agentim::listener::{load_checkpoint_from_path, save_checkpoint_to_path, ListenerCheckpoint};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_checkpoint_path() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("agentim-listener-checkpoint-{}.json", nanos))
+    std::env::temp_dir().join(format!(
+        "agentim-listener-checkpoint-{}.json",
+        uuid::Uuid::new_v4()
+    ))
 }
 
 #[tokio::test]

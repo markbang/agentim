@@ -43,5 +43,6 @@
   "webhook_secret": "change-me",
   "webhook_signing_secret": "change-me-signing",
   "webhook_max_skew_seconds": 300,
+  "metrics_secret": "change-me-metrics",
   "addr": "127.0.0.1:8080"
 }

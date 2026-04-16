@@ -56,7 +56,13 @@ Metrics are exposed at:
 
 - `GET /metrics`
 
-Protect with `x-agentim-secret` when `webhook_secret` is enabled.
+Metrics endpoint authentication follows a three-level fallback:
+
+1. If `metrics_secret` is configured, use it exclusively for `/metrics`
+2. If only `webhook_secret` is configured, fall back to `webhook_secret`
+3. If neither is configured, `/metrics` is publicly accessible
+
+Protect `/metrics` in production by setting a dedicated `metrics_secret` to isolate metrics access from webhook authentication.
 
 Current metrics include:
 

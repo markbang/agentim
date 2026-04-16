@@ -111,6 +111,7 @@ Core flags:
 --config-file PATH
 --addr HOST:PORT
 --dry-run
+--metrics-secret SECRET
 ```
 
 Platform flags:

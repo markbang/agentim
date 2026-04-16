@@ -105,6 +105,7 @@ pub struct BotServerConfig {
     pub dingtalk_secret: Option<String>,
     pub line_channel_secret: Option<String>,
     pub session_ttl_seconds: Option<u64>,
+    pub metrics_secret: Option<String>,
 }
 
 impl BotServerConfig {
@@ -150,6 +151,7 @@ impl Default for BotServerConfig {
             dingtalk_secret: None,
             line_channel_secret: None,
             session_ttl_seconds: None,
+            metrics_secret: None,
         }
     }
 }
@@ -1188,9 +1190,19 @@ async fn metrics_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> (StatusCode, String) {
-    if authorize_shared(&headers, &state).is_err() {
-        metrics::inc_auth_reject("shared_secret");
-        return (StatusCode::UNAUTHORIZED, "unauthorized".to_string());
+    let metrics_secret = state.config.metrics_secret.as_deref();
+    let webhook_secret = state.config.webhook_secret.as_deref();
+    let effective_secret = metrics_secret.or(webhook_secret);
+
+    if let Some(expected) = effective_secret {
+        let provided = headers
+            .get("x-agentim-secret")
+            .and_then(|value| value.to_str().ok());
+
+        if provided != Some(expected) {
+            metrics::inc_auth_reject("metrics_secret");
+            return (StatusCode::UNAUTHORIZED, "unauthorized".to_string());
+        }
     }
 
     match metrics::gather_text() {

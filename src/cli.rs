@@ -180,6 +180,10 @@ pub struct Args {
     /// Server address (default: 127.0.0.1:8080)
     #[arg(long)]
     pub addr: Option<String>,
+
+    /// Require this secret for the /metrics endpoint; falls back to webhook_secret if unset
+    #[arg(long)]
+    pub metrics_secret: Option<String>,
 }
 
 pub fn print_success(text: &str) {
